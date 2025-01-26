@@ -1,19 +1,26 @@
 {
-  "packages": [
-    "rustc@latest",
-    "cargo@latest",
-    "rust-analyzer@latest",
-    "clippy@latest",
-    "vscode-extensions.llvm-org.lldb-vscode@latest"
-  ],
-  "shell": {
-    "init_hook": [
-      "echo 'Welcome to devbox!' > /dev/null"
+    "packages": [
+        "rustc@latest",
+        "cargo@latest",
+        "rust-analyzer@latest",
+        "clippy@latest",
+        "libiconv@latest",
+        "vscode-extensions.llvm-org.lldb-vscode@latest",
     ],
-    "scripts": {
-      "test": [
-        "echo \"Error: no test specified\" && exit 1"
-      ]
+    "shell": {
+        "init_hook": [
+            "projectDir=$PWD",
+            "cargoHome=\"$projectDir\"/.direnv/cargo",
+            "mkdir -p $cargoHome",
+            "export CARGO_HOME=$cargoHome",
+            "export LIBRARY_PATH=$LIBRARY_PATH:\"$projectDir/.devbox/nix/profile/default/lib\"",
+            "export PATH=$PATH:$projectDir/target/release",
+            "cargo fetch"
+        ],
+        "scripts": {
+            "test": "cargo test -- --show-output",
+            "start" : "cargo run",
+            "build-docs": "cargo doc"
+        }
     }
-  }
 }
