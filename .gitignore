@@ -2,3 +2,4 @@
 .direnv
 .devboxCargo.lock
 devbox.lock
+playground

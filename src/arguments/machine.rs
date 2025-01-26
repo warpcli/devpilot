@@ -19,28 +19,15 @@ pub fn cmd() -> Command {
             .aliases(["a", "new"])
             .arg_required_else_help(true)
             .arg(
-                Arg::new("interactive")
-                .help("Interactive mode")
-                .short('i')
-                .long("interactive")
-                .conflicts_with("host")
-                .conflicts_with("username")
-                .conflicts_with("key")
-                .action(ArgAction::SetTrue)
-            )
-            .arg(
                 Arg::new("name")
                 .help("Name of the machine")
-                .required_unless_present("interactive")
                 .value_name("MACHINE_NAME")
             )
             .arg(
                 Arg::new("host")
                 .help("ip:port:iface of the machine")
-                .required_unless_present("interactive")
                 .value_name("IP:PORT:IFACE")
                 .num_args(1..=10)
-                .conflicts_with("interactive")
                 .action(ArgAction::Append)
                 .value_parser(|v: &str| {
 
@@ -80,8 +67,7 @@ pub fn cmd() -> Command {
                 .short('u')
                 .long("username")
                 .value_name("USERNAME")
-                .default_value("root")
-                // .required_unless_present("interactive")
+                // .default_value("root")
                 .conflicts_with("interactive")
             )
             .arg(
@@ -91,8 +77,6 @@ pub fn cmd() -> Command {
                 .long("key")
                 .value_name("KEY_PATH")
                 .default_value("~/.ssh/id_rsa")
-                // .required_unless_present("interactive")
-                .conflicts_with("interactive")
             )
         )
         .subcommand(

@@ -1,45 +1,54 @@
 extern crate directories;
+use crate::commands::{
+    machine::{Machine, Machines},
+    TerminalSize,
+};
 use clap::ArgMatches;
-use crate::commands::{machine::{Machine, Machines}, TerminalSize};
-use std::io::Result;
-use figment::{providers::{Format, Toml}, Figment};
-use inquire::{Text, validator::Validation};
-use toml;
+use figment::{
+    providers::{Format, Toml},
+    Figment,
+};
 use std::env;
-extern crate interfaces;
-use interfaces::Interface;
 use std::path::PathBuf;
+use std::string::String;
+use toml;
 
-pub fn handle(matches: ArgMatches, machines_file: PathBuf, _terminal_size: TerminalSize){
+pub fn handle(matches: ArgMatches, machines_file: PathBuf, _terminal_size: TerminalSize) {
     let mut machines: Machines = Figment::new()
         .merge(Toml::file(&machines_file))
-        .extract().unwrap();
-        
+        .extract()
+        .unwrap();
+
     let mut new_machine = Machine::new();
-    if matches.get_flag("interactive") {
-        if interactive(&mut new_machine).is_err() {
-            eprintln!("Error: Could not start interactive mode");
-        }
-    } else {
-        let name = matches.get_one::<String>("name").unwrap();
-        new_machine.set_name(name);
-        
-        let host = matches.get_many::<(String, String, String)>("host");
-        for i in host.unwrap() {
-            new_machine.add_host(&i.0, &i.1, &i.2);
-        }
-        
-        let username = matches.get_one::<String>("username").unwrap();
-        new_machine.set_username(username);
-        
-        let key = matches.get_one::<String>("key").unwrap();
-        new_machine.set_key(key);
+    let name = matches.get_one::<String>("name").unwrap();
+    new_machine.set_name(name);
+
+    let host = matches.get_many::<(String, String, String)>("host");
+    for i in host.unwrap() {
+        new_machine.add_host(&i.0, &i.1, &i.2);
     }
 
-    if let Some(m) = machines.machines.iter_mut().find(|m| m.name == new_machine.name) {
+    let usrn = env::var("USER").unwrap_or_else(|_| String::from("root"));
+    let username = matches.get_one::<String>("username");
+    match username {
+        Some(u) => new_machine.set_username(u),
+        None => new_machine.set_username(&usrn),
+    }
+
+    let key = matches.get_one::<String>("key").unwrap();
+    new_machine.set_key(key);
+
+    if let Some(m) = machines
+        .machines
+        .iter_mut()
+        .find(|m| m.name == new_machine.name)
+    {
         for h in new_machine.hosts.iter() {
             if m.hosts.iter().find(|host| host.iface == h.iface).is_some() {
-                eprintln!("Error: Machine with name {} and interface {} already exists", m.name, h.iface);
+                eprintln!(
+                    "Error: Machine with name {} and interface {} already exists",
+                    m.name, h.iface
+                );
                 return;
             }
         }
@@ -47,76 +56,7 @@ pub fn handle(matches: ArgMatches, machines_file: PathBuf, _terminal_size: Termi
     } else {
         machines.machines.push(new_machine);
     }
-    
+
     let toml = toml::to_string_pretty(&machines).unwrap();
     std::fs::write(&machines_file, toml).expect("Could not write to config file");
-}
-
-
-fn interactive(machine: &mut Machine) -> Result<()> {
-    let name = Text::new("Name")
-        .with_validator(|input: &str| {
-            if input.is_empty() {
-                Ok(Validation::Invalid("Name cannot be empty".into()))
-            } else {
-                Ok(Validation::Valid)
-            }
-        })
-        .prompt();
-
-    if name.is_ok() {
-        machine.set_name(&name.unwrap());
-    }
-
-    let uname= env::var("USER").unwrap_or_else(|_| String::from("root"));
-    let username = Text::new("Username")
-        .with_validator(|input: &str| {
-            if input.is_empty() {
-                Ok(Validation::Invalid("Username cannot be empty".into()))
-            } else {
-                Ok(Validation::Valid)
-            }
-        })
-        .with_default(&uname)
-        .prompt();
-
-    if username.is_ok() {
-        machine.set_username(&username.unwrap());
-    }
-
-    let host = Text::new("Host")
-        .with_validator(|input: &str| {
-            let ifs = Interface::get_all().expect("could not get interfaces");
-            let parts: Vec<&str> = input.split(":").collect();
-            if parts.len() < 3 {
-                return Ok(Validation::Invalid("Invalid host format, should be ip:port:iface".into()));
-            }
-            if parts[0].parse::<std::net::IpAddr>().is_err() {
-                return Ok(Validation::Invalid("Invalid ip format".into()));
-            }
-            if parts.len() == 3 {
-                if parts[1].parse::<u16>().is_err() {
-                    return Ok(Validation::Invalid("Invalid port format".into()));
-                }
-                if !ifs.iter().any(|i| i.name == parts[2]) {
-                    return Ok(Validation::Invalid("Invalid iface name".into()));
-                }
-            } else if parts.len() == 2 {
-                if !ifs.iter().any(|i| i.name == parts[1]) {
-                    return Ok(Validation::Invalid("Invalid iface name".into()));
-                }
-            }
-            Ok(Validation::Valid)
-        })
-        .prompt();
-
-    if host.is_ok() {
-        let host = host.unwrap();
-        machine.add_host(&host.split(":").collect::<Vec<&str>>()[0].to_string(), &host.split(":").collect::<Vec<&str>>()[1].to_string(), &host.split(":").collect::<Vec<&str>>()[2].to_string());
-    }
-
-    println!("{}", machine);
-
-    Ok(())
-
 }

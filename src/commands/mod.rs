@@ -1,9 +1,9 @@
 use clap::ArgMatches;
 
-mod workspace;
+mod machine;
 mod project;
 mod template;
-mod machine;
+mod workspace;
 
 struct TerminalSize(pub usize, pub usize);
 

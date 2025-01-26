@@ -30,6 +30,5 @@ pub fn cmd() -> Command {
             Command::new("list")
             .about("List all projects in the workspace")
             .aliases(["l", "ls"])
-            .arg_required_else_help(true)
-        )   
+        )
 }

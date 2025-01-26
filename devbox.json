@@ -1,6 +1,7 @@
 {
     "packages": [
         "rustc@latest",
+        "rustfmt@latest",
         "cargo@latest",
         "rust-analyzer@latest",
         "clippy@latest",
