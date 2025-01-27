@@ -16,7 +16,6 @@
             "export CARGO_HOME=$cargoHome",
             "export LIBRARY_PATH=$LIBRARY_PATH:\"$projectDir/.devbox/nix/profile/default/lib\"",
             "export PATH=$PATH:$projectDir/target/release",
-            "cargo fetch"
         ],
         "scripts": {
             "test": "cargo test -- --show-output",

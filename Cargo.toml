@@ -25,3 +25,5 @@ hostname = "0.4.0"
 regex = "1.10.5"
 tabled = { version = "0.15.0"}
 russh = "0.49.2"
+skim = "0.16.0"
+fuzzy-matcher = "0.3.7"
