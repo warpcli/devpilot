@@ -800,7 +800,6 @@ dependencies = [
  "directories",
  "dotenv",
  "figment",
- "fuzzy-matcher",
  "hostname",
  "inquire",
  "interfaces",
