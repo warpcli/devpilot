@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.9] - 2025-04-25
+## [0.1.10] - 2025-04-25
 
 ### <!-- 0 -->⛰️  Features
 
@@ -23,11 +23,16 @@
 
 ### <!-- 7 -->⚙️ Miscellaneous Tasks
 
+- Use Jammy Jellyfish in GitHub Actions
 - Refactor command handling and improve environment integration
 - Refactor devbox configuration for improved build process
 - Refactor machine listing and table generation
 - Update widget appearance in UI
 - Add `regex` dependency with version `1.10.5` to `Cargo.toml`
+
+### Build
+
+- Refine build and script execution environment
 
 ### Refractor
 
