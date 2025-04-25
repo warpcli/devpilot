@@ -36,7 +36,7 @@ release() {
     changelog=$(git cliff --unreleased --strip all)
     git add -A && git commit -m "chore(release): prepare for $version"
     echo "$changelog"
-    git tag -a $version -m "$version" -m "$changelog"
+    git tag -a $version -m "$changelog"
     git push --follow-tags --force --set-upstream origin develop
     gh release create $version --notes "$changelog"
 }
