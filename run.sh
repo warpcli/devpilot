@@ -30,13 +30,13 @@ release() {
             PATCH=$((PATCH + 1))
             ;;
     esac
-    NEW_VERSION="$MAJOR.$MINOR.$PATCH"
-    sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
-    git cliff --tag $NEW_VERSION > CHANGELOG.md
+    version="$MAJOR.$MINOR.$PATCH"
+    sed -i "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
+    git cliff --tag $version > CHANGELOG.md
     changelog=$(git cliff --unreleased --strip all)
     git add -A && git commit -m "chore(release): prepare for $version"
     echo "$changelog"
-    git tag -a $version -m "$changelog"
+    git tag -a $version -m "$version" -m "$changelog"
     git push --follow-tags --force --set-upstream origin develop
     gh release create $version --notes "$changelog"
 }
