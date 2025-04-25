@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.1.7] - 2025-04-25
+
+### <!-- 0 -->⛰️  Features
+
+- Refactor item selection and improve user interaction in app
+- Enhance machine selection and user interaction in TUI
+- Refactor machine listing command and implement table formatting
+
+### <!-- 1 -->🐛 Bug Fixes
+
+- Cleanup stupid staff
+
+### <!-- 2 -->🚜 Refactor
+
+- Machine command and help message in mod.rs and list.rs
+- Refactor machine addition functionality
+- Refactor code for improved readability and maintainability
+- Refactor and add traits to Host and Machine structs
+- Refactor machine handling and add TOML support
+- Refactor code for improved readability and maintainability
+
+### <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Refactor command handling and improve environment integration
+- Refactor devbox configuration for improved build process
+- Refactor machine listing and table generation
+- Update widget appearance in UI
+- Add `regex` dependency with version `1.10.5` to `Cargo.toml`
+
+### Refractor
+
+- Refactor machine command and methods in Machines
+- Update tabled crate and refactor handle function
+
 ## [0.1.6] - 2024-06-24
 
 ### <!-- 0 -->⛰️  Features
