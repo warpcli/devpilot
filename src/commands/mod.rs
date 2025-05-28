@@ -16,13 +16,13 @@ pub fn handle(matches: ArgMatches) {
     let terminal_size = get_terminal_size();
     match matches.subcommand() {
         Some(("workspace", submatch)) => {
-            workspace::handle(submatch.clone());
+            workspace::handle(submatch.clone(), terminal_size);
         }
         Some(("project", submatch)) => {
-            project::handle(submatch.clone());
+            project::handle(matches.clone(), submatch.clone(), terminal_size);
         }
         Some(("template", submatch)) => {
-            template::handle(submatch.clone());
+            template::handle(submatch.clone(), terminal_size);
         }
         Some(("machine", submatch)) => {
             machine::handle(submatch.clone(), terminal_size);

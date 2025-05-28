@@ -15,6 +15,8 @@ use tabled::{
 mod add;
 mod list;
 mod pick;
+mod connect;
+mod remove;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Host {
@@ -313,9 +315,14 @@ pub fn handle(matches: ArgMatches, terminal_size: TerminalSize) {
         Some(("list", args)) => {
             list::handle(args.clone(), machines_file, terminal_size);
         }
-
         Some(("pick", args)) => {
             pick::handle(args.clone(), machines_file, terminal_size);
+        }
+        Some(("connect", args)) => {
+            connect::handle(args.clone(), machines_file, terminal_size);
+        }
+        Some(("remove", args)) => {
+            remove::handle(args.clone(), machines_file, terminal_size);
         }
         _ => unreachable!("UNREACHABLE"),
     }

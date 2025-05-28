@@ -1,4 +1,4 @@
-use clap::{Command, Arg};
+use clap::{Command, Arg, ArgAction};
 
 pub fn cmd() -> Command {
     Command::new("template")
@@ -21,7 +21,7 @@ pub fn cmd() -> Command {
                 Arg::new("description")
                 .short('d')
                 .long("description")
-                .aliases(&["description", "desc"])
+                .aliases(&["desc"])
                 .help("Description of the template")
                 .required(true)
                 .value_name("DESCRIPTION")
@@ -30,10 +30,79 @@ pub fn cmd() -> Command {
                 Arg::new("path")
                 .short('p')
                 .long("path")
-                .aliases(&["path", "p"])
                 .help("Path to the template")
                 .required(true)
                 .value_name("TEMPLATE_PATH")
+            )
+            .arg(
+                Arg::new("language")
+                .short('l')
+                .long("language")
+                .help("Primary programming language")
+                .value_name("LANGUAGE")
+            )
+            .arg(
+                Arg::new("framework")
+                .short('f')
+                .long("framework")
+                .help("Framework used in the template")
+                .value_name("FRAMEWORK")
+            )
+            .arg(
+                Arg::new("tags")
+                .long("tags")
+                .help("Tags for the template")
+                .value_name("TAG")
+                .action(ArgAction::Append)
+            )
+        )
+        .subcommand(
+            Command::new("list")
+            .about("List all templates")
+            .aliases(["l", "ls"])
+            .arg(
+                Arg::new("raw")
+                .help("Raw mode")
+                .short('r')
+                .long("raw")
+                .action(ArgAction::SetTrue)
+            )
+        )
+        .subcommand(
+            Command::new("info")
+            .about("Show template information")
+            .aliases(["i", "show"])
+            .arg_required_else_help(true)
+            .arg(
+                Arg::new("template_name")
+                .help("Name of the template")
+                .required(true)
+                .value_name("TEMPLATE_NAME")
+            )
+        )
+        .subcommand(
+            Command::new("apply")
+            .about("Apply a template to create a new project")
+            .aliases(["use", "create"])
+            .arg_required_else_help(true)
+            .arg(
+                Arg::new("template_name")
+                .help("Name of the template to apply")
+                .required(true)
+                .value_name("TEMPLATE_NAME")
+            )
+            .arg(
+                Arg::new("target_path")
+                .help("Target path for the new project")
+                .required(true)
+                .value_name("TARGET_PATH")
+            )
+            .arg(
+                Arg::new("project_name")
+                .short('n')
+                .long("name")
+                .help("Name for the new project (replaces placeholders)")
+                .value_name("PROJECT_NAME")
             )
         )
 }

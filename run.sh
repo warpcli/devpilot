@@ -1,15 +1,16 @@
 #!/bin/bash
 
-
 # @cmd build cargo project
 # @alias b
 build() {
     cargo build --release
 }
 
+run() {
+    ./target/release/dp
+}
 
 # @cmd mark as releaser
-# @alias r
 # @arg type![patch|minor|major] Release type
 release() {
     # echo "release $1"
@@ -31,9 +32,17 @@ release() {
             ;;
     esac
     version="$MAJOR.$MINOR.$PATCH"
+    LATEST_TAG=$(git tag --list --sort=-version:refname | head -n 1)
+    if [ -n "$LATEST_TAG" ]; then
+        # Not the first release - get changes since last tag
+        changelog=$(git cliff $LATEST_TAG..HEAD --strip all)
+        git cliff --tag $version $LATEST_TAG..HEAD --prepend CHANGELOG.md
+    else
+        # First release - get all changes
+        changelog=$(git cliff --unreleased --strip all)
+        git cliff --tag $version --unreleased --prepend CHANGELOG.md
+    fi
     sed -i "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
-    git cliff --tag $version > CHANGELOG.md
-    changelog=$(git cliff --unreleased --strip all)
     git add -A && git commit -m "chore(release): prepare for $version"
     echo "$changelog"
     git tag -a $version -m "$version" -m "$changelog"

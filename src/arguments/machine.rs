@@ -92,7 +92,7 @@ pub fn cmd() -> Command {
                 .arg(
                     Arg::new("hosty")
                         .help("Hostname ready mode")
-                        .short('h')
+                        .short('H')
                         .long("hosty")
                         .action(ArgAction::SetTrue),
                 ),
@@ -106,5 +106,43 @@ pub fn cmd() -> Command {
                         .help("Name of the machine")
                         .value_name("MACHINE_NAME"),
                 ),
+        )
+        .subcommand(
+            Command::new("connect")
+                .about("Connect to a machine via SSH")
+                .aliases(["c", "ssh"])
+                .arg_required_else_help(true)
+                .arg(
+                    Arg::new("machine_name")
+                        .help("Name of the machine to connect to")
+                        .required(true)
+                        .value_name("MACHINE_NAME"),
+                )
+                .arg(
+                    Arg::new("interface")
+                        .short('i')
+                        .long("interface")
+                        .help("Interface to use for connection")
+                        .value_name("INTERFACE")
+                )
+                .arg(
+                    Arg::new("command")
+                        .short('c')
+                        .long("command")
+                        .help("Command to execute on remote machine")
+                        .value_name("COMMAND")
+                )
+        )
+        .subcommand(
+            Command::new("remove")
+                .about("Remove a machine")
+                .aliases(["r", "rm", "delete"])
+                .arg_required_else_help(true)
+                .arg(
+                    Arg::new("machine_name")
+                        .help("Name of the machine to remove")
+                        .required(true)
+                        .value_name("MACHINE_NAME"),
+                )
         )
 }

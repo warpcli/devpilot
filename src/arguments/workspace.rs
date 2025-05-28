@@ -1,4 +1,4 @@
-use clap::{Command, Arg};
+use clap::{Command, Arg, ArgAction};
 
 pub fn cmd() -> Command {
     Command::new("workspace")
@@ -6,6 +6,51 @@ pub fn cmd() -> Command {
         .aliases(&["w", "workspaces", "ws"])
         .subcommand_required(true)
         .arg_required_else_help(true)
+        .subcommand(
+            Command::new("add")
+            .about("Add a new workspace")
+            .aliases(["a", "new", "create"])
+            .arg_required_else_help(true)
+            .arg(
+                Arg::new("name")
+                .help("Name of the workspace")
+                .required(true)
+                .value_name("WORKSPACE_NAME")
+            )
+            .arg(
+                Arg::new("path")
+                .short('p')
+                .long("path")
+                .help("Path to the workspace directory")
+                .value_name("WORKSPACE_PATH")
+            )
+            .arg(
+                Arg::new("description")
+                .short('d')
+                .long("description")
+                .help("Description of the workspace")
+                .value_name("DESCRIPTION")
+            )
+            .arg(
+                Arg::new("projects")
+                .long("projects")
+                .help("Project names to associate with this workspace")
+                .value_name("PROJECT")
+                .action(ArgAction::Append)
+            )
+        )
+        .subcommand(
+            Command::new("list")
+            .about("List all workspaces")
+            .aliases(["l", "ls"])
+            .arg(
+                Arg::new("raw")
+                .help("Raw mode")
+                .short('r')
+                .long("raw")
+                .action(ArgAction::SetTrue)
+            )
+        )
         .subcommand(
             Command::new("info")
             .about("Print information about a workspace")
@@ -20,14 +65,40 @@ pub fn cmd() -> Command {
         )
         .subcommand(
             Command::new("component")
-            .about("add or remove components from a workspace")
+            .about("Add or remove components from a workspace")
             .aliases(["c", "components", "comp"])
             .arg_required_else_help(true)
             .arg(
                 Arg::new("workspace_name")
-                .help("Name of the workspace to add or remove components")
+                .help("Name of the workspace to manage components")
                 .required(true)
                 .value_name("WORKSPACE_NAME")
+            )
+            .arg(
+                Arg::new("action")
+                .help("Action to perform (add, remove, list)")
+                .value_name("ACTION")
+                .default_value("list")
+            )
+            .arg(
+                Arg::new("component_name")
+                .help("Name of the component")
+                .value_name("COMPONENT_NAME")
+            )
+            .arg(
+                Arg::new("component_type")
+                .short('t')
+                .long("type")
+                .help("Type of component (project, tool, config)")
+                .value_name("TYPE")
+                .default_value("project")
+            )
+            .arg(
+                Arg::new("component_path")
+                .short('p')
+                .long("path")
+                .help("Path to the component")
+                .value_name("PATH")
             )
         )
 }

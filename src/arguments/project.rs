@@ -1,4 +1,4 @@
-use clap::{Command, Arg};
+use clap::{Command, Arg, ArgAction};
 
 pub fn cmd() -> Command {
     Command::new("project")
@@ -13,6 +13,60 @@ pub fn cmd() -> Command {
             .long("namespace")
             .value_name("NAMESPACE")
             .default_value("default")
+        )
+        .subcommand(
+            Command::new("add")
+            .about("Add a new project")
+            .aliases(["a", "new", "create"])
+            .arg_required_else_help(true)
+            .arg(
+                Arg::new("name")
+                .help("Name of the project")
+                .required(true)
+                .value_name("PROJECT_NAME")
+            )
+            .arg(
+                Arg::new("path")
+                .short('p')
+                .long("path")
+                .help("Path to the project directory")
+                .value_name("PROJECT_PATH")
+            )
+            .arg(
+                Arg::new("template")
+                .short('t')
+                .long("template")
+                .help("Template to use for the project")
+                .value_name("TEMPLATE_NAME")
+            )
+            .arg(
+                Arg::new("description")
+                .short('d')
+                .long("description")
+                .help("Description of the project")
+                .value_name("DESCRIPTION")
+            )
+            .arg(
+                Arg::new("language")
+                .short('l')
+                .long("language")
+                .help("Primary programming language")
+                .value_name("LANGUAGE")
+            )
+            .arg(
+                Arg::new("framework")
+                .short('f')
+                .long("framework")
+                .help("Framework used in the project")
+                .value_name("FRAMEWORK")
+            )
+            .arg(
+                Arg::new("tags")
+                .long("tags")
+                .help("Tags for the project")
+                .value_name("TAG")
+                .action(ArgAction::Append)
+            )
         )
         .subcommand(
             Command::new("info")
@@ -30,5 +84,12 @@ pub fn cmd() -> Command {
             Command::new("list")
             .about("List all projects in the workspace")
             .aliases(["l", "ls"])
+            .arg(
+                Arg::new("raw")
+                .help("Raw mode")
+                .short('r')
+                .long("raw")
+                .action(ArgAction::SetTrue)
+            )
         )
 }
