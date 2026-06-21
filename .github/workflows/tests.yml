@@ -24,6 +24,8 @@ jobs:
           key: ${{ runner.os }}-nim-${{ hashFiles('devpilot.nimble') }}
           restore-keys: |
             ${{ runner.os }}-nim-
+      - name: Install dependencies
+        run: make tidy
       - name: Verify
         run: make verify
       - name: Build
