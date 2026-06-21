@@ -1,22 +1,28 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# @cmd build cargo project
+# @cmd build devpilot
 # @alias b
 build() {
-    cargo build --release
+    nimble build -y
 }
 
+# @cmd run devpilot
+# @alias r
 run() {
-    ./target/release/dp
+    nimble run -y -- "$@"
+}
+
+# @cmd run tests
+# @alias t
+test() {
+    nimble test -y
 }
 
 # @cmd mark as releaser
 # @arg type![patch|minor|major] Release type
 release() {
-    # echo "release $1"
-    CURRENT_VERSION=$(grep '^version = ' Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+    CURRENT_VERSION=$(grep '^version' devpilot.nimble | sed -E 's/.*"([^"]+)".*/\1/')
     IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
-    echo $argc_type
     case $argc_type in
         major)
             MAJOR=$((MAJOR + 1))
@@ -34,22 +40,19 @@ release() {
     version="$MAJOR.$MINOR.$PATCH"
     LATEST_TAG=$(git tag --list --sort=-version:refname | head -n 1)
     if [ -n "$LATEST_TAG" ]; then
-        # Not the first release - get changes since last tag
-        changelog=$(git cliff $LATEST_TAG..HEAD --strip all)
-        git cliff --tag $version $LATEST_TAG..HEAD --prepend CHANGELOG.md
+        changelog=$(git cliff "$LATEST_TAG"..HEAD --strip all)
+        git cliff --tag "$version" "$LATEST_TAG"..HEAD --prepend CHANGELOG.md
     else
-        # First release - get all changes
         changelog=$(git cliff --unreleased --strip all)
-        git cliff --tag $version --unreleased --prepend CHANGELOG.md
+        git cliff --tag "$version" --unreleased --prepend CHANGELOG.md
     fi
-    sed -i "s/^version = \".*\"/version = \"$version\"/" Cargo.toml
+    sed -i "s/^version *= \".*\"/version       = \"$version\"/" devpilot.nimble
     git add -A && git commit -m "chore(release): prepare for $version"
     echo "$changelog"
-    git tag -a $version -m "$version" -m "$changelog"
+    git tag -a "$version" -m "$version" -m "$changelog"
     git push --follow-tags --force --set-upstream origin develop
-    gh release create $version --notes "$changelog"
+    gh release create "$version" --notes "$changelog"
 }
-
 
 # @cmd compile mdbook
 # @alias m
@@ -59,6 +62,5 @@ mdbook() {
     mdbook build book --dest-dir ../docs
     git add -A && git commit -m "docs: building website/mdbook"
 }
-
 
 eval "$(argc --argc-eval "$0" "$@")"

@@ -1,6 +1,8 @@
 /target
-.direnv
-.devboxCargo.lock
-devbox.lock
+/.direnv
+/.devbox
+/bin
+/nimcache
+/tests/test_cli
+/result
 playground
-.devbox
