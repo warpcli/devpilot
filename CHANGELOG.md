@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.0] - 2026-06-21
+
+### <!-- 0 -->⛰️  Features
+
+- Consolidate data management under `dp data`
+- To NIIIIIM
+- To NIIIIIM
+- Add project, template, workspace, and machine commands
+
+### Build
+
+- Simplify devbox configuration and scripts
+
 ## [0.1.10] - 2025-04-25
 
 ### <!-- 0 -->⛰️  Features
