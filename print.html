@@ -166,9 +166,10 @@ path.</p>
 <li><code>dp workspace ...</code></li>
 <li><code>dp machine ...</code></li>
 <li><code>dp template ...</code></li>
-<li><code>dp backup ...</code></li>
+<li><code>dp data ...</code></li>
 <li><code>dp tui</code></li>
 </ul>
+<p>Running <code>dp</code> with no arguments opens the TUI.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
 <p>Build locally with the repo Makefile:</p>
 <pre><code class="language-sh">make build
@@ -235,10 +236,10 @@ and overlays support scrolling for long output.</p>
 <li><code>templates.toml</code></li>
 </ul>
 <p>Backup and restore:</p>
-<pre><code class="language-sh">dp backup create --path ./devpilot-backup
-dp backup restore ./devpilot-backup --force
-dp export --format json
-dp import ./devpilot-backup --merge
+<pre><code class="language-sh">dp data backup create --path ./devpilot-backup
+dp data backup restore ./devpilot-backup --force
+dp data export --format json
+dp data import ./devpilot-backup --merge
 </code></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="shell-completions"><a class="header" href="#shell-completions">Shell completions</a></h1>
 <p>Generate completion scripts:</p>
