@@ -13,8 +13,8 @@ Files:
 Backup and restore:
 
 ```sh
-dp backup create --path ./devpilot-backup
-dp backup restore ./devpilot-backup --force
-dp export --format json
-dp import ./devpilot-backup --merge
+dp data backup create --path ./devpilot-backup
+dp data backup restore ./devpilot-backup --force
+dp data export --format json
+dp data import ./devpilot-backup --merge
 ```

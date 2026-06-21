@@ -14,5 +14,7 @@ Core commands:
 - `dp workspace ...`
 - `dp machine ...`
 - `dp template ...`
-- `dp backup ...`
+- `dp data ...`
 - `dp tui`
+
+Running `dp` with no arguments opens the TUI.

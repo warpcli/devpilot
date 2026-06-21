@@ -13,7 +13,7 @@ removeDir(backupPath)
 discard checked(dp & "project add persisted --path /tmp/persisted")
 doAssert readFile(dataRoot / "projects.toml").contains("schema_version = 1")
 
-let created = checked(dp & "backup create --path " & quoteShell(backupPath))
+let created = checked(dp & "data backup create --path " & quoteShell(backupPath))
 doAssert created.contains("Backup created:")
 doAssert fileExists(backupPath / "manifest.toml")
 doAssert fileExists(backupPath / "projects.toml")
@@ -22,15 +22,15 @@ doAssert fileExists(backupPath / "machines.toml")
 doAssert fileExists(backupPath / "templates.toml")
 
 removeDir(dataRoot)
-discard checked(dp & "backup restore " & quoteShell(backupPath))
+discard checked(dp & "data backup restore " & quoteShell(backupPath))
 let restoredInfo = checked(dp & "project info persisted")
 doAssert restoredInfo.contains("Project: persisted")
 
-let refused = run(dp & "backup restore " & quoteShell(backupPath))
+let refused = run(dp & "data backup restore " & quoteShell(backupPath))
 doAssert refused.code != 0
 doAssert refused.output.contains("Refusing to overwrite")
 
-discard checked(dp & "backup restore " & quoteShell(backupPath) & " --force")
+discard checked(dp & "data backup restore " & quoteShell(backupPath) & " --force")
 
 writeFile(dataRoot / "projects.toml",
     "[[projects]]\nname = \"legacy\"\npath = \"/tmp/legacy\"\n")
