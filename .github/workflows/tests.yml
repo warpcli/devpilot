@@ -15,7 +15,16 @@ jobs:
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: "2.2.4"
+      - name: Cache Nim
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.nimble
+            ~/.cache/nim
+          key: ${{ runner.os }}-nim-${{ hashFiles('devpilot.nimble') }}
+          restore-keys: |
+            ${{ runner.os }}-nim-
+      - name: Verify
+        run: make verify
       - name: Build
-        run: nimble build -y
-      - name: Run tests
-        run: nimble test -y
+        run: make build

@@ -8,11 +8,12 @@ devpilot
 ## Features
 
 - Manage named projects with namespace, path, language, framework, template, and tag metadata.
-- Manage workspaces and attach components to them.
-- Manage reusable file/directory templates and apply them to new target directories.
-- Manage SSH machine entries and connect through stored host/interface metadata.
+- Discover/import projects and bootstrap workspaces from existing source trees.
+- Manage workspaces, attach components, inspect status, run commands, and emit shell environment exports.
+- Manage reusable file/directory templates and apply them to new target directories with dry-run, conflict, and symlink controls.
+- Manage SSH machine entries, generate SSH config, check TCP reachability, and connect through stored host/interface metadata.
 - Browse all stored development data through an `illwill`-backed terminal dashboard.
-- Store user data as small TOML files under the platform data directory (`$XDG_DATA_HOME/devpilot` on Linux when set).
+- Store user data as versioned TOML files under the platform data directory (`$XDG_DATA_HOME/devpilot` on Linux when set), with backup/import/export commands.
 
 ## Development
 
@@ -31,25 +32,31 @@ nix develop --impure
 Build:
 
 ```sh
-nimble build -y
+make build
 ```
 
 Test:
 
 ```sh
-nimble test -y
+make test
+```
+
+Full local gate:
+
+```sh
+make verify
 ```
 
 Run:
 
 ```sh
-nimble run -y -- --help
+make run ARGS="--help"
 ```
 
-After `nimble build`, the binary is available at:
+After `make build`, the binary is available at:
 
 ```sh
-./bin/dp --help
+./dp --help
 ```
 
 ## Usage
@@ -57,10 +64,16 @@ After `nimble build`, the binary is available at:
 ```sh
 dp --help
 dp project add my-app --path ~/code/my-app --language go --tags cli
-dp project list --raw
+dp project list --json
+dp project discover ~/code --depth 2
 dp workspace add lab --path ~/code --projects my-app
+dp workspace status lab
+dp workspace run lab -- git status --short
 dp template add basic --description "Basic app" --path ./template --language go
+dp template apply basic /tmp/my-app --name my_app --dry-run
 dp machine add lab 127.0.0.1:22:local --username "$USER"
+dp machine ssh-config lab
+dp backup create --path ./devpilot-backup
 dp tui
 ```
 
@@ -79,7 +92,7 @@ Management keys:
 - `Enter` shows details for the selected project, workspace, machine, or template.
 - `/` filters the current section.
 - `:` opens a command palette that runs any non-interactive `dp` command and reloads the dashboard.
-- `a` opens a prefilled add command for the current section.
+- `a` opens a field-based add form for the current section.
 - `d` deletes the selected row after typing `yes`.
 - `?` shows the in-app key reference.
 

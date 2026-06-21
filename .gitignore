@@ -1,8 +1,9 @@
 /target
 /.direnv
 /.devbox
+/dp
 /bin
 /nimcache
-/tests/test_cli
+/coverage.out
 /result
 playground

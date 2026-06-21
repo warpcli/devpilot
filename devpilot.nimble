@@ -12,4 +12,4 @@ requires "nim >= 2.2.0"
 requires "illwill >= 0.4.1"
 
 task test, "Run CLI regression tests":
-  exec "nim c -r tests/test_cli.nim"
+  exec "sh -c 'for t in tests/test_*.nim; do case \"$t\" in *test_support.nim) continue;; esac; nim c -r \"$t\" || exit 1; done'"

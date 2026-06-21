@@ -1,4 +1,6 @@
-import std/[net, os, osproc, sequtils, strutils, times]
+import std/[net, os, osproc, sequtils, streams, strutils, times]
+
+import devpilot_storage
 
 const
   Version = "0.1.10"
@@ -83,25 +85,6 @@ proc noneIfEmpty(value: string): string =
 
 proc unknownIfEmpty(value: string): string =
   if value.len == 0: "unknown" else: value
-
-proc dataRoot(): string =
-  let xdgData = getEnv("XDG_DATA_HOME")
-  if xdgData.len > 0:
-    result = xdgData / "devpilot"
-  else:
-    result = getHomeDir() / ".local" / "share" / "devpilot"
-  createDir(result)
-
-proc configPath(fileName: string): string =
-  dataRoot() / fileName
-
-proc readConfig(path: string): string =
-  if fileExists(path): readFile(path) else: ""
-
-proc ensureFile(path, defaultContent: string) =
-  createDir(parentDir(path))
-  if (not fileExists(path)) or getFileSize(path) == 0:
-    writeFile(path, defaultContent)
 
 proc tomlEscape(value: string): string =
   value
@@ -205,7 +188,8 @@ proc popFlag(args: var seq[string]; names: openArray[string]): bool =
         return true
     inc i
 
-proc popValue(args: var seq[string]; names: openArray[string]; defaultValue = ""): string =
+proc popValue(args: var seq[string]; names: openArray[string];
+    defaultValue = ""): string =
   var i = 0
   while i < args.len:
     for name in names:
@@ -255,7 +239,8 @@ proc parseMachines(path: string): seq[Machine] =
       currentHost = -1
     elif line == "[[machines.hosts]]":
       if currentMachine >= 0:
-        result[currentMachine].hosts.add(Host(ip: "", port: "22", iface: "local"))
+        result[currentMachine].hosts.add(Host(ip: "", port: "22",
+            iface: "local"))
         currentHost = result[currentMachine].hosts.high
     elif line.contains("=") and currentMachine >= 0:
       let (key, value) = splitKeyValue(line)
@@ -263,7 +248,8 @@ proc parseMachines(path: string): seq[Machine] =
         case key
         of "ip": result[currentMachine].hosts[currentHost].ip = unquoteToml(value)
         of "port": result[currentMachine].hosts[currentHost].port = unquoteToml(value)
-        of "iface": result[currentMachine].hosts[currentHost].iface = unquoteToml(value)
+        of "iface": result[currentMachine].hosts[
+            currentHost].iface = unquoteToml(value)
         else: discard
       else:
         case key
@@ -273,9 +259,9 @@ proc parseMachines(path: string): seq[Machine] =
         else: discard
 
 proc writeMachines(path: string; machines: seq[Machine]) =
-  var text = ""
+  var text = schemaHeader()
   if machines.len == 0:
-    text = "machines = []\n"
+    text.add("machines = []\n")
   else:
     for machine in machines:
       text.add("[[machines]]\n")
@@ -289,7 +275,7 @@ proc writeMachines(path: string; machines: seq[Machine]) =
         text.add("port = " & tomlString(host.port) & "\n")
         text.add("iface = " & tomlString(host.iface) & "\n")
       text.add("\n")
-  writeFile(path, text)
+  atomicWriteFile(path, text)
 
 proc defaultMachine(): Machine =
   let hostName = getEnv("HOSTNAME", "localhost")
@@ -315,7 +301,8 @@ proc parseProjects(path: string): seq[Project] =
       continue
     if line == "[[projects]]":
       let stamp = nowStamp()
-      result.add(Project(namespace: "default", tags: @[], createdAt: stamp, updatedAt: stamp))
+      result.add(Project(namespace: "default", tags: @[], createdAt: stamp,
+          updatedAt: stamp))
       current = result.high
     elif current >= 0 and line.contains("="):
       let (key, value) = splitKeyValue(line)
@@ -333,27 +320,31 @@ proc parseProjects(path: string): seq[Project] =
       else: discard
 
 proc writeProjects(path: string; projects: seq[Project]) =
-  var text = ""
+  var text = schemaHeader()
   if projects.len == 0:
-    text = "projects = []\n"
+    text.add("projects = []\n")
   else:
     for project in projects:
       text.add("[[projects]]\n")
       text.add("name = " & tomlString(project.name) & "\n")
       text.add("path = " & tomlString(project.path) & "\n")
       text.add("namespace = " & tomlString(project.namespace) & "\n")
-      if project.templateName.len > 0: text.add("template = " & tomlString(project.templateName) & "\n")
-      if project.description.len > 0: text.add("description = " & tomlString(project.description) & "\n")
-      if project.language.len > 0: text.add("language = " & tomlString(project.language) & "\n")
-      if project.framework.len > 0: text.add("framework = " & tomlString(project.framework) & "\n")
+      if project.templateName.len > 0: text.add("template = " & tomlString(
+          project.templateName) & "\n")
+      if project.description.len > 0: text.add("description = " & tomlString(
+          project.description) & "\n")
+      if project.language.len > 0: text.add("language = " & tomlString(
+          project.language) & "\n")
+      if project.framework.len > 0: text.add("framework = " & tomlString(
+          project.framework) & "\n")
       text.add("tags = " & tomlArray(project.tags) & "\n")
       text.add("created_at = " & tomlString(project.createdAt) & "\n")
       text.add("updated_at = " & tomlString(project.updatedAt) & "\n\n")
-  writeFile(path, text)
+  atomicWriteFile(path, text)
 
 proc ensureProjectsFile(): string =
   result = configPath("projects.toml")
-  ensureFile(result, "projects = []\n")
+  ensureFile(result, schemaHeader() & "projects = []\n")
 
 proc parseWorkspaces(path: string): seq[Workspace] =
   let content = readConfig(path)
@@ -365,20 +356,27 @@ proc parseWorkspaces(path: string): seq[Workspace] =
       continue
     if line == "[[workspaces]]":
       let stamp = nowStamp()
-      result.add(Workspace(components: @[], projects: @[], createdAt: stamp, updatedAt: stamp))
+      result.add(Workspace(components: @[], projects: @[], createdAt: stamp,
+          updatedAt: stamp))
       currentWorkspace = result.high
       currentComponent = -1
     elif line == "[[workspaces.components]]":
       if currentWorkspace >= 0:
-        result[currentWorkspace].components.add(Component(componentType: "project"))
+        result[currentWorkspace].components.add(Component(
+            componentType: "project"))
         currentComponent = result[currentWorkspace].components.high
     elif line.contains("=") and currentWorkspace >= 0:
       let (key, value) = splitKeyValue(line)
-      if currentComponent >= 0 and key in ["name", "component_type", "componentType", "path"]:
+      if currentComponent >= 0 and key in ["name", "component_type",
+          "componentType", "path"]:
         case key
-        of "name": result[currentWorkspace].components[currentComponent].name = unquoteToml(value)
-        of "component_type", "componentType": result[currentWorkspace].components[currentComponent].componentType = unquoteToml(value)
-        of "path": result[currentWorkspace].components[currentComponent].path = unquoteToml(value)
+        of "name": result[currentWorkspace].components[
+            currentComponent].name = unquoteToml(value)
+        of "component_type", "componentType": result[
+            currentWorkspace].components[
+            currentComponent].componentType = unquoteToml(value)
+        of "path": result[currentWorkspace].components[
+            currentComponent].path = unquoteToml(value)
         else: discard
       else:
         case key
@@ -386,20 +384,23 @@ proc parseWorkspaces(path: string): seq[Workspace] =
         of "path": result[currentWorkspace].path = unquoteToml(value)
         of "description": result[currentWorkspace].description = unquoteToml(value)
         of "projects": result[currentWorkspace].projects = parseStringArray(value)
-        of "created_at", "createdAt": result[currentWorkspace].createdAt = unquoteToml(value)
-        of "updated_at", "updatedAt": result[currentWorkspace].updatedAt = unquoteToml(value)
+        of "created_at", "createdAt": result[
+            currentWorkspace].createdAt = unquoteToml(value)
+        of "updated_at", "updatedAt": result[
+            currentWorkspace].updatedAt = unquoteToml(value)
         else: discard
 
 proc writeWorkspaces(path: string; workspaces: seq[Workspace]) =
-  var text = ""
+  var text = schemaHeader()
   if workspaces.len == 0:
-    text = "workspaces = []\n"
+    text.add("workspaces = []\n")
   else:
     for workspace in workspaces:
       text.add("[[workspaces]]\n")
       text.add("name = " & tomlString(workspace.name) & "\n")
       text.add("path = " & tomlString(workspace.path) & "\n")
-      if workspace.description.len > 0: text.add("description = " & tomlString(workspace.description) & "\n")
+      if workspace.description.len > 0: text.add("description = " & tomlString(
+          workspace.description) & "\n")
       text.add("projects = " & tomlArray(workspace.projects) & "\n")
       text.add("created_at = " & tomlString(workspace.createdAt) & "\n")
       text.add("updated_at = " & tomlString(workspace.updatedAt) & "\n")
@@ -407,13 +408,262 @@ proc writeWorkspaces(path: string; workspaces: seq[Workspace]) =
         text.add("\n[[workspaces.components]]\n")
         text.add("name = " & tomlString(component.name) & "\n")
         text.add("component_type = " & tomlString(component.componentType) & "\n")
-        if component.path.len > 0: text.add("path = " & tomlString(component.path) & "\n")
+        if component.path.len > 0: text.add("path = " & tomlString(
+            component.path) & "\n")
       text.add("\n")
-  writeFile(path, text)
+  atomicWriteFile(path, text)
 
 proc ensureWorkspacesFile(): string =
   result = configPath("workspaces.toml")
-  ensureFile(result, "workspaces = []\n")
+  ensureFile(result, schemaHeader() & "workspaces = []\n")
+
+type
+  WorkspaceEntry = object
+    kind: string
+    name: string
+    path: string
+
+  DetectedProject = object
+    name: string
+    path: string
+    language: string
+    framework: string
+
+proc workspaceEntries(workspace: Workspace; projects: seq[Project]): seq[
+    WorkspaceEntry] =
+  for projectName in workspace.projects:
+    var projectPath = ""
+    for project in projects:
+      if project.name == projectName:
+        projectPath = project.path
+        break
+    result.add(WorkspaceEntry(kind: "project", name: projectName,
+        path: projectPath))
+  for component in workspace.components:
+    result.add(WorkspaceEntry(kind: component.componentType,
+        name: component.name, path: component.path))
+
+proc findWorkspace(workspaces: seq[Workspace]; name: string): int =
+  result = -1
+  for i, workspace in workspaces:
+    if workspace.name == name:
+      return i
+
+proc findFirstExe(candidates: openArray[string]): string =
+  for candidate in candidates:
+    let found = findExe(candidate)
+    if found.len > 0:
+      return found
+
+proc prefixedOutput(prefix, output: string) =
+  for line in output.splitLines():
+    if line.len > 0:
+      echo "[" & prefix & "] " & line
+
+proc runProcessInDir(commandParts: seq[string]; cwd: string): tuple[
+    output: string; code: int] =
+  if commandParts.len == 0:
+    return ("", 2)
+  try:
+    let processArgs =
+      if commandParts.len > 1: commandParts[1 .. ^1]
+      else: @[]
+    let process = startProcess(commandParts[0], workingDir = cwd,
+        args = processArgs, options = {poUsePath, poStdErrToStdOut})
+    result.output = process.outputStream.readAll()
+    result.code = process.waitForExit()
+    process.close()
+  except CatchableError as e:
+    result.output = e.msg
+    result.code = 1
+
+proc gitStatusForPath(path: string): tuple[exists, git, branch,
+    status: string] =
+  if path.len == 0 or not dirExists(path):
+    return ("missing", "no", "-", "missing")
+  let inside = execCmdEx("git -C " & quoteShell(path) &
+      " rev-parse --is-inside-work-tree")
+  if inside.exitCode != 0 or inside.output.strip() != "true":
+    return ("yes", "no", "-", "non-git")
+  var branch = execCmdEx("git -C " & quoteShell(path) &
+      " branch --show-current").output.strip()
+  if branch.len == 0:
+    branch = execCmdEx("git -C " & quoteShell(path) &
+        " rev-parse --short HEAD").output.strip()
+  if branch.len == 0:
+    branch = "-"
+  let dirty = execCmdEx("git -C " & quoteShell(path) &
+      " status --porcelain").output.strip()
+  ("yes", "yes", branch, if dirty.len == 0: "clean" else: "dirty")
+
+proc jsonString(value: string): string =
+  "\"" & value
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+    .replace("\n", "\\n") & "\""
+
+proc hasNimbleFile(path: string): bool =
+  for kind, item in walkDir(path):
+    if kind == pcFile and item.endsWith(".nimble"):
+      return true
+
+proc detectProject(path: string): tuple[found: bool; project: DetectedProject] =
+  var language = ""
+  var hints: seq[string] = @[]
+
+  if dirExists(path / ".git") or fileExists(path / ".git"):
+    hints.add("git")
+  if fileExists(path / "go.mod"):
+    language = "Go"
+    hints.add("go modules")
+  if fileExists(path / "Cargo.toml"):
+    if language.len == 0:
+      language = "Rust"
+    hints.add("cargo")
+  if hasNimbleFile(path):
+    if language.len == 0:
+      language = "Nim"
+    hints.add("nimble")
+  if fileExists(path / "pyproject.toml") or fileExists(path / "setup.py"):
+    if language.len == 0:
+      language = "Python"
+    hints.add("python")
+  if fileExists(path / "package.json"):
+    if language.len == 0:
+      language = "Node"
+    hints.add("npm")
+  if fileExists(path / "build.zig"):
+    if language.len == 0:
+      language = "Zig"
+    hints.add("zig")
+
+  if hints.len == 0:
+    return (false, DetectedProject())
+
+  let normalized = normalizedPath(path)
+  (true, DetectedProject(
+    name: splitPath(normalized).tail,
+    path: normalized,
+    language: language,
+    framework: hints.join(", ")
+  ))
+
+proc ignoredDiscoveryDir(path: string): bool =
+  splitPath(path).tail in [".git", "node_modules", "target", "nimcache",
+      ".direnv", "vendor", "result"]
+
+proc discoverProjects(root: string; maxDepth: int): seq[DetectedProject] =
+  var foundProjects: seq[DetectedProject] = @[]
+
+  proc scan(path: string; depth: int) =
+    if depth > maxDepth or (depth > 0 and ignoredDiscoveryDir(path)):
+      return
+    let detected = detectProject(path)
+    if detected.found:
+      foundProjects.add(detected.project)
+    if depth == maxDepth:
+      return
+    for kind, child in walkDir(path):
+      if kind == pcDir:
+        scan(child, depth + 1)
+
+  if not dirExists(root):
+    die("Discovery path '" & root & "' does not exist")
+  scan(root, 0)
+  result = foundProjects
+
+proc printDiscovered(projects: seq[DetectedProject]; asJson: bool) =
+  if asJson:
+    echo "["
+    for i, project in projects:
+      let suffix = if i == projects.high: "" else: ","
+      echo "  {\"name\": " & jsonString(project.name) & ", \"path\": " &
+          jsonString(project.path) & ", \"language\": " &
+          jsonString(project.language) & ", \"framework\": " &
+          jsonString(project.framework) & "}" & suffix
+    echo "]"
+  elif projects.len == 0:
+    echo "No projects discovered"
+  else:
+    echo table(
+      @["Name", "Path", "Language", "Framework"],
+      projects.mapIt(@[
+        it.name,
+        it.path,
+        noneIfEmpty(it.language),
+        noneIfEmpty(it.framework)
+      ])
+    )
+
+proc jsonStringArray(values: seq[string]): string =
+  result = "["
+  for i, value in values:
+    if i > 0:
+      result.add(", ")
+    result.add(jsonString(value))
+  result.add("]")
+
+proc projectJson(project: Project): string =
+  "{\"name\": " & jsonString(project.name) & ", \"path\": " &
+      jsonString(project.path) & ", \"namespace\": " &
+      jsonString(project.namespace) & ", \"template\": " &
+      jsonString(project.templateName) & ", \"description\": " &
+      jsonString(project.description) & ", \"language\": " &
+      jsonString(project.language) & ", \"framework\": " &
+      jsonString(project.framework) & ", \"tags\": " & jsonStringArray(
+          project.tags) &
+      ", \"created_at\": " & jsonString(project.createdAt) &
+          ", \"updated_at\": " &
+      jsonString(project.updatedAt) & "}"
+
+proc componentJson(component: Component): string =
+  "{\"name\": " & jsonString(component.name) & ", \"type\": " &
+      jsonString(component.componentType) & ", \"path\": " &
+      jsonString(component.path) & "}"
+
+proc workspaceJson(workspace: Workspace): string =
+  var components = "["
+  for i, component in workspace.components:
+    if i > 0:
+      components.add(", ")
+    components.add(componentJson(component))
+  components.add("]")
+  "{\"name\": " & jsonString(workspace.name) & ", \"path\": " &
+      jsonString(workspace.path) & ", \"description\": " &
+      jsonString(workspace.description) & ", \"projects\": " &
+      jsonStringArray(workspace.projects) & ", \"components\": " & components &
+      ", \"created_at\": " & jsonString(workspace.createdAt) &
+      ", \"updated_at\": " & jsonString(workspace.updatedAt) & "}"
+
+proc hostJson(host: Host): string =
+  "{\"ip\": " & jsonString(host.ip) & ", \"port\": " & jsonString(host.port) &
+      ", \"iface\": " & jsonString(host.iface) & "}"
+
+proc machineJson(machine: Machine): string =
+  var hosts = "["
+  for i, host in machine.hosts:
+    if i > 0:
+      hosts.add(", ")
+    hosts.add(hostJson(host))
+  hosts.add("]")
+  "{\"name\": " & jsonString(machine.name) & ", \"username\": " &
+      jsonString(machine.username) & ", \"key\": " & jsonString(machine.key) &
+      ", \"hosts\": " & hosts & "}"
+
+proc templateJson(tmpl: Template): string =
+  "{\"name\": " & jsonString(tmpl.name) & ", \"description\": " &
+      jsonString(tmpl.description) & ", \"path\": " & jsonString(tmpl.path) &
+      ", \"language\": " & jsonString(tmpl.language) & ", \"framework\": " &
+      jsonString(tmpl.framework) & ", \"tags\": " & jsonStringArray(tmpl.tags) &
+      ", \"created_at\": " & jsonString(tmpl.createdAt) & ", \"updated_at\": " &
+      jsonString(tmpl.updatedAt) & "}"
+
+proc printJsonArray[T](items: seq[T]; render: proc(item: T): string) =
+  echo "["
+  for i, item in items:
+    let suffix = if i == items.high: "" else: ","
+    echo "  " & render(item) & suffix
+  echo "]"
 
 proc parseTemplates(path: string): seq[Template] =
   let content = readConfig(path)
@@ -440,25 +690,27 @@ proc parseTemplates(path: string): seq[Template] =
       else: discard
 
 proc writeTemplates(path: string; templates: seq[Template]) =
-  var text = ""
+  var text = schemaHeader()
   if templates.len == 0:
-    text = "templates = []\n"
+    text.add("templates = []\n")
   else:
     for tmpl in templates:
       text.add("[[templates]]\n")
       text.add("name = " & tomlString(tmpl.name) & "\n")
       text.add("description = " & tomlString(tmpl.description) & "\n")
       text.add("path = " & tomlString(tmpl.path) & "\n")
-      if tmpl.language.len > 0: text.add("language = " & tomlString(tmpl.language) & "\n")
-      if tmpl.framework.len > 0: text.add("framework = " & tomlString(tmpl.framework) & "\n")
+      if tmpl.language.len > 0: text.add("language = " & tomlString(
+          tmpl.language) & "\n")
+      if tmpl.framework.len > 0: text.add("framework = " & tomlString(
+          tmpl.framework) & "\n")
       text.add("tags = " & tomlArray(tmpl.tags) & "\n")
       text.add("created_at = " & tomlString(tmpl.createdAt) & "\n")
       text.add("updated_at = " & tomlString(tmpl.updatedAt) & "\n\n")
-  writeFile(path, text)
+  atomicWriteFile(path, text)
 
 proc ensureTemplatesFile(): string =
   result = configPath("templates.toml")
-  ensureFile(result, "templates = []\n")
+  ensureFile(result, schemaHeader() & "templates = []\n")
 
 proc loadDashboardData*(): DashboardData =
   let projectPath = ensureProjectsFile()
@@ -492,8 +744,8 @@ proc loadDashboardData*(): DashboardData =
           it.namespace,
           it.path,
           noneIfEmpty(it.language)
-        ])
-      ),
+    ])
+  ),
       DashboardSection(
         title: "Workspaces",
         empty: "No workspaces yet. Add one with: dp workspace add NAME --path PATH",
@@ -503,26 +755,26 @@ proc loadDashboardData*(): DashboardData =
           it.path,
           if it.projects.len == 0: "None" else: it.projects.join(", "),
           $it.components.len
-        ])
-      ),
+    ])
+  ),
       DashboardSection(
         title: "Machines",
         empty: "No machines yet. Add one with: dp machine add NAME IP[:PORT][:IFACE]",
         headers: @["Name", "User", "Hosts", "Key"],
         rows: machineRows
-      ),
-      DashboardSection(
-        title: "Templates",
-        empty: "No templates yet. Add one with: dp template add NAME --description DESC --path PATH",
-        headers: @["Name", "Description", "Path", "Language"],
-        rows: templates.mapIt(@[
-          it.name,
-          it.description,
-          it.path,
-          noneIfEmpty(it.language)
-        ])
-      )
-    ]
+    ),
+    DashboardSection(
+      title: "Templates",
+      empty: "No templates yet. Add one with: dp template add NAME --description DESC --path PATH",
+      headers: @["Name", "Description", "Path", "Language"],
+      rows: templates.mapIt(@[
+        it.name,
+        it.description,
+        it.path,
+        noneIfEmpty(it.language)
+      ])
+    )
+  ]
   )
 
 proc showHelp() =
@@ -534,6 +786,10 @@ Commands:
   project    [p]    Project and code creation
   machine    [m]    Add or edit hostnames and ssh
   template   [t]    Project template management
+  backup     [bk]   Backup and restore devpilot data
+  export           Export all devpilot data
+  import           Import exported devpilot data
+  completions      Generate shell completions
   tui         [ui]   Full-screen terminal dashboard
 
 Options:
@@ -548,8 +804,14 @@ Usage: dp project [--namespace NAMESPACE] <COMMAND>
 
 Commands:
   add NAME [options]
+  discover PATH [--depth N] [--json]
+  import PATH [--namespace NAMESPACE] [--dry-run]
   list [--raw]
   info NAME
+  set NAME [options]
+  rename OLD NEW
+  tag add NAME TAG
+  tag remove NAME TAG
   remove NAME
 """
 
@@ -561,6 +823,11 @@ Commands:
   add NAME [options]
   list [--raw]
   info NAME
+  set NAME [options]
+  rename OLD NEW
+  project add WORKSPACE PROJECT
+  project remove WORKSPACE PROJECT
+  discover NAME PATH
   remove NAME
   component WORKSPACE [add|remove|list] [COMPONENT] [options]
 """
@@ -573,7 +840,11 @@ Commands:
   add NAME --description DESC --path PATH [options]
   list [--raw]
   info NAME
-  apply TEMPLATE TARGET_PATH [--name PROJECT_NAME]
+  set NAME [options]
+  rename OLD NEW
+  tag add NAME TAG
+  tag remove NAME TAG
+  apply TEMPLATE TARGET_PATH [--name PROJECT_NAME] [--dry-run] [--force|--skip-existing] [--allow-symlinks]
   remove NAME
 """
 
@@ -585,9 +856,25 @@ Commands:
   add NAME IP[:PORT][:IFACE]... [--username USER] [--key KEY]
   list [--raw]
   info NAME
+  set NAME [--username USER] [--key KEY]
+  rename OLD NEW
+  host add NAME IP[:PORT][:IFACE]...
+  host remove NAME IFACE
+  ssh-config [NAME]
+  check NAME [--timeout MS]
+  check --all [--timeout MS]
   pick
-  connect NAME [--interface IFACE] [--command COMMAND]
+  connect NAME [--interface IFACE] [--command COMMAND] [--dry-run]
   remove NAME
+"""
+
+proc showBackupHelp() =
+  echo """
+Usage: dp backup <COMMAND>
+
+Commands:
+  create [--path PATH]
+  restore PATH [--force]
 """
 
 proc handleProject(argsIn: seq[string]) =
@@ -629,17 +916,78 @@ proc handleProject(argsIn: seq[string]) =
       updatedAt: stamp
     ))
     writeProjects(path, projects)
-    echo "Project '" & name & "' added successfully to namespace '" & namespace & "'"
+    echo "Project '" & name & "' added successfully to namespace '" &
+        namespace & "'"
+  of "discover", "scan":
+    let depthValue = popValue(args, ["--depth"], "3")
+    let asJson = popFlag(args, ["--json"])
+    rejectUnknownOptions(args)
+    requireArgs(args, 1, "dp project discover PATH [--depth N] [--json]")
+    var depth = 3
+    try:
+      depth = parseInt(depthValue)
+    except ValueError:
+      die("Invalid discovery depth: " & depthValue, 2)
+    if depth < 0:
+      die("Invalid discovery depth: " & depthValue, 2)
+    printDiscovered(discoverProjects(args[0], depth), asJson)
+  of "import":
+    let dryRun = popFlag(args, ["--dry-run"])
+    let depthValue = popValue(args, ["--depth"], "3")
+    rejectUnknownOptions(args)
+    requireArgs(args, 1, "dp project import PATH [--namespace NAMESPACE] [--dry-run]")
+    var depth = 3
+    try:
+      depth = parseInt(depthValue)
+    except ValueError:
+      die("Invalid discovery depth: " & depthValue, 2)
+    if depth < 0:
+      die("Invalid discovery depth: " & depthValue, 2)
+    let discovered = discoverProjects(args[0], depth)
+    if discovered.len == 0:
+      echo "No projects discovered"
+      return
+    var imported = 0
+    var skipped = 0
+    let stamp = nowStamp()
+    for item in discovered:
+      if projects.anyIt(it.name == item.name and it.namespace == namespace):
+        echo "Skipped duplicate: " & item.name
+        inc skipped
+      elif dryRun:
+        echo "Would import: " & item.name & " -> " & item.path
+        inc imported
+      else:
+        projects.add(Project(
+          name: item.name,
+          path: item.path,
+          namespace: namespace,
+          language: item.language,
+          framework: item.framework,
+          tags: @[],
+          createdAt: stamp,
+          updatedAt: stamp
+        ))
+        echo "Imported: " & item.name
+        inc imported
+    if not dryRun and imported > 0:
+      writeProjects(path, projects)
+    echo "Import summary: " & $imported & " imported, " & $skipped & " skipped"
   of "list", "l", "ls":
     let raw = popFlag(args, ["-r", "--raw"])
+    let asJson = popFlag(args, ["--json"])
     rejectUnknownOptions(args)
     let filtered = projects.filterIt(it.namespace == namespace)
-    if raw:
+    if asJson:
+      printJsonArray(filtered, projectJson)
+    elif raw:
       for project in filtered:
-        echo project.name & "\t" & project.namespace & "\t" & project.path & "\t" & unknownIfEmpty(project.language)
+        echo project.name & "\t" & project.namespace & "\t" & project.path &
+            "\t" & unknownIfEmpty(project.language)
     else:
       echo table(
-        @["Name", "Path", "Namespace", "Template", "Language", "Framework", "Tags", "Created"],
+        @["Name", "Path", "Namespace", "Template", "Language", "Framework",
+            "Tags", "Created"],
         filtered.mapIt(@[
           it.name,
           it.path,
@@ -664,7 +1012,8 @@ proc handleProject(argsIn: seq[string]) =
         echo "Description: " & noneIfEmpty(project.description)
         echo "Language: " & noneIfEmpty(project.language)
         echo "Framework: " & noneIfEmpty(project.framework)
-        echo "Tags: " & (if project.tags.len == 0: "None" else: project.tags.join(", "))
+        echo "Tags: " & (if project.tags.len ==
+            0: "None" else: project.tags.join(", "))
         echo "Created: " & displayStamp(project.createdAt)
         echo "Updated: " & displayStamp(project.updatedAt)
         return
@@ -679,6 +1028,70 @@ proc handleProject(argsIn: seq[string]) =
       die("Project '" & name & "' not found in namespace '" & namespace & "'")
     writeProjects(path, projects)
     echo "Project '" & name & "' removed from namespace '" & namespace & "'"
+  of "set", "update", "edit":
+    let projectPath = popValue(args, ["-p", "--path"])
+    let language = popValue(args, ["-l", "--language"])
+    let framework = popValue(args, ["-f", "--framework"])
+    let description = popValue(args, ["-d", "--description"])
+    rejectUnknownOptions(args)
+    requireArgs(args, 1, "dp project set NAME [options]")
+    if projectPath.len == 0 and language.len == 0 and framework.len == 0 and
+        description.len == 0:
+      die("No project fields were provided", 2)
+    let name = args[0]
+    for i in 0 .. projects.high:
+      if projects[i].name == name and projects[i].namespace == namespace:
+        if projectPath.len > 0:
+          projects[i].path = projectPath
+        if language.len > 0:
+          projects[i].language = language
+        if framework.len > 0:
+          projects[i].framework = framework
+        if description.len > 0:
+          projects[i].description = description
+        projects[i].updatedAt = nowStamp()
+        writeProjects(path, projects)
+        echo "Project '" & name & "' updated in namespace '" & namespace & "'"
+        return
+    die("Project '" & name & "' not found in namespace '" & namespace & "'")
+  of "rename", "mv":
+    rejectUnknownOptions(args)
+    requireArgs(args, 2, "dp project rename OLD NEW")
+    let oldName = args[0]
+    let newName = args[1]
+    if projects.anyIt(it.name == newName and it.namespace == namespace):
+      die("Project '" & newName & "' already exists in namespace '" &
+          namespace & "'")
+    for i in 0 .. projects.high:
+      if projects[i].name == oldName and projects[i].namespace == namespace:
+        projects[i].name = newName
+        projects[i].updatedAt = nowStamp()
+        writeProjects(path, projects)
+        echo "Project '" & oldName & "' renamed to '" & newName &
+            "' in namespace '" & namespace & "'"
+        return
+    die("Project '" & oldName & "' not found in namespace '" & namespace & "'")
+  of "tag", "tags":
+    rejectUnknownOptions(args)
+    requireArgs(args, 3, "dp project tag add|remove NAME TAG")
+    let action = args[0]
+    let name = args[1]
+    let tag = args[2]
+    for i in 0 .. projects.high:
+      if projects[i].name == name and projects[i].namespace == namespace:
+        case action
+        of "add":
+          if not projects[i].tags.contains(tag):
+            projects[i].tags.add(tag)
+        of "remove", "rm":
+          projects[i].tags = projects[i].tags.filterIt(it != tag)
+        else:
+          die("Unknown project tag action: " & action, 2)
+        projects[i].updatedAt = nowStamp()
+        writeProjects(path, projects)
+        echo "Project '" & name & "' tags updated in namespace '" & namespace & "'"
+        return
+    die("Project '" & name & "' not found in namespace '" & namespace & "'")
   else:
     die("Unknown project command: " & command, 2)
 
@@ -719,7 +1132,8 @@ proc handleWorkspace(argsIn: seq[string]) =
     rejectUnknownOptions(args)
     if raw:
       for workspace in workspaces:
-        echo workspace.name & "\t" & workspace.path & "\t" & workspace.projects.join(",")
+        echo workspace.name & "\t" & workspace.path & "\t" &
+            workspace.projects.join(",")
     else:
       echo table(
         @["Name", "Path", "Description", "Projects", "Components", "Created"],
@@ -733,25 +1147,217 @@ proc handleWorkspace(argsIn: seq[string]) =
         ])
       )
   of "info", "i", "show":
+    let asJson = popFlag(args, ["--json"])
     rejectUnknownOptions(args)
     requireArgs(args, 1, "dp workspace info NAME")
     let name = args[0]
     for workspace in workspaces:
       if workspace.name == name:
-        echo "Workspace: " & workspace.name
-        echo "Path: " & workspace.path
-        echo "Description: " & noneIfEmpty(workspace.description)
-        echo "Projects: " & (if workspace.projects.len == 0: "None" else: workspace.projects.join(", "))
-        echo "Components:"
-        if workspace.components.len == 0:
-          echo "  None"
+        if asJson:
+          echo workspaceJson(workspace)
         else:
-          for component in workspace.components:
-            echo "  " & component.name & ": " & component.componentType & " (" & noneIfEmpty(component.path).replace("None", "no path") & ")"
-        echo "Created: " & displayStamp(workspace.createdAt)
-        echo "Updated: " & displayStamp(workspace.updatedAt)
+          echo "Workspace: " & workspace.name
+          echo "Path: " & workspace.path
+          echo "Description: " & noneIfEmpty(workspace.description)
+          echo "Projects: " & (if workspace.projects.len ==
+              0: "None" else: workspace.projects.join(", "))
+          echo "Components:"
+          if workspace.components.len == 0:
+            echo "  None"
+          else:
+            for component in workspace.components:
+              echo "  " & component.name & ": " & component.componentType &
+                  " (" & noneIfEmpty(component.path).replace("None",
+                      "no path") & ")"
+          echo "Created: " & displayStamp(workspace.createdAt)
+          echo "Updated: " & displayStamp(workspace.updatedAt)
         return
     die("Workspace '" & name & "' not found")
+  of "status", "stat":
+    rejectUnknownOptions(args)
+    requireArgs(args, 1, "dp workspace status NAME")
+    let name = args[0]
+    let idx = findWorkspace(workspaces, name)
+    if idx < 0:
+      die("Workspace '" & name & "' not found")
+    let projects = parseProjects(ensureProjectsFile())
+    let entries = workspaceEntries(workspaces[idx], projects)
+    echo "Workspace: " & name
+    echo ""
+    if entries.len == 0:
+      echo "No workspace paths configured"
+    else:
+      echo table(
+        @["Type", "Name", "Path", "Exists", "Git", "Branch", "Status"],
+        entries.mapIt(block:
+          let state = gitStatusForPath(it.path)
+          @[
+            it.kind,
+            it.name,
+            if it.path.len == 0: "missing" else: it.path,
+            state.exists,
+            state.git,
+            state.branch,
+            state.status
+          ]
+        )
+      )
+  of "run":
+    let parallel = popFlag(args, ["--parallel"])
+    requireArgs(args, 3, "dp workspace run NAME [--parallel] -- COMMAND...")
+    let name = args[0]
+    if args[1] != "--":
+      die("Usage: dp workspace run NAME [--parallel] -- COMMAND...", 2)
+    let commandParts = args[2 .. ^1]
+    let idx = findWorkspace(workspaces, name)
+    if idx < 0:
+      die("Workspace '" & name & "' not found")
+    let projects = parseProjects(ensureProjectsFile())
+    let entries = workspaceEntries(workspaces[idx], projects)
+    var failed = false
+    if parallel:
+      var jobs: seq[tuple[name: string; process: Process]] = @[]
+      for entry in entries:
+        if entry.path.len == 0 or not dirExists(entry.path):
+          echo "[" & entry.name & "] missing path: " & noneIfEmpty(entry.path)
+          failed = true
+        else:
+          try:
+            let processArgs =
+              if commandParts.len > 1: commandParts[1 .. ^1]
+              else: @[]
+            let process = startProcess(commandParts[0], workingDir = entry.path,
+                args = processArgs, options = {poUsePath, poStdErrToStdOut})
+            jobs.add((entry.name, process))
+          except CatchableError as e:
+            echo "[" & entry.name & "] " & e.msg
+            failed = true
+      for job in jobs:
+        let output = job.process.outputStream.readAll()
+        let code = job.process.waitForExit()
+        job.process.close()
+        prefixedOutput(job.name, output)
+        if code != 0:
+          failed = true
+    else:
+      for entry in entries:
+        if entry.path.len == 0 or not dirExists(entry.path):
+          echo "[" & entry.name & "] missing path: " & noneIfEmpty(entry.path)
+          failed = true
+          continue
+        let runResult = runProcessInDir(commandParts, entry.path)
+        prefixedOutput(entry.name, runResult.output)
+        if runResult.code != 0:
+          failed = true
+    if failed:
+      quit(1)
+  of "open":
+    let editorOption = popValue(args, ["--editor"])
+    let terminal = popFlag(args, ["--terminal"])
+    let dryRun = popFlag(args, ["--dry-run"])
+    rejectUnknownOptions(args)
+    requireArgs(args, 1, "dp workspace open NAME [--editor EDITOR] [--terminal] [--dry-run]")
+    let name = args[0]
+    let idx = findWorkspace(workspaces, name)
+    if idx < 0:
+      die("Workspace '" & name & "' not found")
+    let projects = parseProjects(ensureProjectsFile())
+    let paths = workspaceEntries(workspaces[idx], projects).mapIt(
+        it.path).filterIt(it.len > 0 and dirExists(it))
+    if paths.len == 0:
+      die("Workspace '" & name & "' has no existing paths")
+    if terminal:
+      let terminalExe =
+        if editorOption.len > 0: editorOption
+        elif getEnv("TERMINAL").len > 0: getEnv("TERMINAL")
+        else: findFirstExe(["x-terminal-emulator", "alacritty", "kitty",
+            "gnome-terminal", "konsole", "xterm"])
+      if terminalExe.len == 0:
+        die("No terminal found; set TERMINAL or use --editor", 2)
+      for itemPath in paths:
+        if dryRun:
+          echo "Would open terminal in: " & itemPath
+        else:
+          try:
+            discard startProcess(terminalExe, workingDir = itemPath,
+                options = {poUsePath})
+          except CatchableError as e:
+            die("Unable to open workspace terminal: " & e.msg)
+    else:
+      let editor =
+        if editorOption.len > 0: editorOption
+        elif getEnv("EDITOR").len > 0: getEnv("EDITOR")
+        else: findFirstExe(["code", "nvim", "vim", "vi"])
+      if editor.len == 0:
+        die("No editor found; set EDITOR or pass --editor", 2)
+      if dryRun:
+        echo "Would run: " & editor & " " & paths.mapIt(quoteShell(it)).join(" ")
+      else:
+        try:
+          discard startProcess(editor, args = paths, options = {poUsePath})
+        except CatchableError as e:
+          die("Unable to open workspace editor: " & e.msg)
+  of "env":
+    let format = popValue(args, ["--format"], "shell")
+    rejectUnknownOptions(args)
+    requireArgs(args, 1, "dp workspace env NAME [--format direnv]")
+    let name = args[0]
+    let idx = findWorkspace(workspaces, name)
+    if idx < 0:
+      die("Workspace '" & name & "' not found")
+    if format == "direnv":
+      echo "# direnv configuration generated by devpilot"
+    elif format != "shell":
+      die("Unknown workspace env format: " & format, 2)
+    echo "export DEVPILOT_WORKSPACE=" & quoteShell(workspaces[idx].name)
+    echo "export DEVPILOT_WORKSPACE_ROOT=" & quoteShell(workspaces[idx].path)
+  of "discover", "bootstrap":
+    let depthValue = popValue(args, ["--depth"], "3")
+    rejectUnknownOptions(args)
+    requireArgs(args, 2, "dp workspace discover NAME PATH [--depth N]")
+    let name = args[0]
+    let workspaceRoot = args[1]
+    if workspaces.anyIt(it.name == name):
+      die("Workspace '" & name & "' already exists")
+    var depth = 3
+    try:
+      depth = parseInt(depthValue)
+    except ValueError:
+      die("Invalid discovery depth: " & depthValue, 2)
+    if depth < 0:
+      die("Invalid discovery depth: " & depthValue, 2)
+    let discovered = discoverProjects(workspaceRoot, depth)
+    let projectPath = ensureProjectsFile()
+    var projects = parseProjects(projectPath)
+    let stamp = nowStamp()
+    var projectNames: seq[string] = @[]
+    for item in discovered:
+      projectNames.add(item.name)
+      if not projects.anyIt(it.name == item.name and it.namespace == "default"):
+        projects.add(Project(
+          name: item.name,
+          path: item.path,
+          namespace: "default",
+          language: item.language,
+          framework: item.framework,
+          tags: @[],
+          createdAt: stamp,
+          updatedAt: stamp
+        ))
+    if discovered.len > 0:
+      writeProjects(projectPath, projects)
+    workspaces.add(Workspace(
+      name: name,
+      path: workspaceRoot,
+      description: "Discovered workspace",
+      components: @[],
+      projects: projectNames,
+      createdAt: stamp,
+      updatedAt: stamp
+    ))
+    writeWorkspaces(path, workspaces)
+    echo "Workspace '" & name & "' discovered with " & $projectNames.len &
+        " projects"
   of "remove", "rm", "delete", "del":
     rejectUnknownOptions(args)
     requireArgs(args, 1, "dp workspace remove NAME")
@@ -762,6 +1368,61 @@ proc handleWorkspace(argsIn: seq[string]) =
       die("Workspace '" & name & "' not found")
     writeWorkspaces(path, workspaces)
     echo "Workspace '" & name & "' removed successfully"
+  of "set", "update", "edit":
+    let workspacePath = popValue(args, ["-p", "--path"])
+    let description = popValue(args, ["-d", "--description"])
+    rejectUnknownOptions(args)
+    requireArgs(args, 1, "dp workspace set NAME [options]")
+    if workspacePath.len == 0 and description.len == 0:
+      die("No workspace fields were provided", 2)
+    let name = args[0]
+    for i in 0 .. workspaces.high:
+      if workspaces[i].name == name:
+        if workspacePath.len > 0:
+          workspaces[i].path = workspacePath
+        if description.len > 0:
+          workspaces[i].description = description
+        workspaces[i].updatedAt = nowStamp()
+        writeWorkspaces(path, workspaces)
+        echo "Workspace '" & name & "' updated successfully"
+        return
+    die("Workspace '" & name & "' not found")
+  of "rename", "mv":
+    rejectUnknownOptions(args)
+    requireArgs(args, 2, "dp workspace rename OLD NEW")
+    let oldName = args[0]
+    let newName = args[1]
+    if workspaces.anyIt(it.name == newName):
+      die("Workspace '" & newName & "' already exists")
+    for i in 0 .. workspaces.high:
+      if workspaces[i].name == oldName:
+        workspaces[i].name = newName
+        workspaces[i].updatedAt = nowStamp()
+        writeWorkspaces(path, workspaces)
+        echo "Workspace '" & oldName & "' renamed to '" & newName & "'"
+        return
+    die("Workspace '" & oldName & "' not found")
+  of "project", "projects":
+    rejectUnknownOptions(args)
+    requireArgs(args, 3, "dp workspace project add|remove WORKSPACE PROJECT")
+    let action = args[0]
+    let workspaceName = args[1]
+    let projectName = args[2]
+    for i in 0 .. workspaces.high:
+      if workspaces[i].name == workspaceName:
+        case action
+        of "add":
+          if not workspaces[i].projects.contains(projectName):
+            workspaces[i].projects.add(projectName)
+        of "remove", "rm":
+          workspaces[i].projects = workspaces[i].projects.filterIt(it != projectName)
+        else:
+          die("Unknown workspace project action: " & action, 2)
+        workspaces[i].updatedAt = nowStamp()
+        writeWorkspaces(path, workspaces)
+        echo "Workspace '" & workspaceName & "' projects updated"
+        return
+    die("Workspace '" & workspaceName & "' not found")
   of "component", "c", "components", "comp":
     let componentType = popValue(args, ["-t", "--type"], "project")
     let componentPath = popValue(args, ["-p", "--path"])
@@ -786,66 +1447,216 @@ proc handleWorkspace(argsIn: seq[string]) =
     of "add":
       requireArgs(args, 1, "dp workspace component WORKSPACE add COMPONENT [options]")
       let componentName = args[0]
-      workspaces[idx].components.add(Component(name: componentName, componentType: componentType, path: componentPath))
+      workspaces[idx].components.add(Component(name: componentName,
+          componentType: componentType, path: componentPath))
       workspaces[idx].updatedAt = nowStamp()
       writeWorkspaces(path, workspaces)
-      echo "Component '" & componentName & "' added to workspace '" & workspaceName & "'"
+      echo "Component '" & componentName & "' added to workspace '" &
+          workspaceName & "'"
     of "remove":
       requireArgs(args, 1, "dp workspace component WORKSPACE remove COMPONENT")
       let componentName = args[0]
       let before = workspaces[idx].components.len
-      workspaces[idx].components = workspaces[idx].components.filterIt(it.name != componentName)
+      workspaces[idx].components = workspaces[idx].components.filterIt(
+          it.name != componentName)
       if workspaces[idx].components.len == before:
-        die("Component '" & componentName & "' not found in workspace '" & workspaceName & "'")
+        die("Component '" & componentName & "' not found in workspace '" &
+            workspaceName & "'")
       workspaces[idx].updatedAt = nowStamp()
       writeWorkspaces(path, workspaces)
-      echo "Component '" & componentName & "' removed from workspace '" & workspaceName & "'"
+      echo "Component '" & componentName & "' removed from workspace '" &
+          workspaceName & "'"
     of "list":
       echo "Components in workspace '" & workspaceName & "':"
       for component in workspaces[idx].components:
-        echo "  - " & component.name & ": " & component.componentType & " (" & noneIfEmpty(component.path).replace("None", "no path") & ")"
+        echo "  - " & component.name & ": " & component.componentType & " (" &
+            noneIfEmpty(component.path).replace("None", "no path") & ")"
     else:
       die("Unknown workspace component action: " & action, 2)
   else:
     die("Unknown workspace command: " & command, 2)
 
-proc copyDirRecursive(src, dst: string) =
-  createDir(dst)
-  for kind, path in walkDir(src):
-    let target = dst / splitPath(path).tail
-    case kind
-    of pcFile, pcLinkToFile:
-      copyFile(path, target)
-    of pcDir:
-      copyDirRecursive(path, target)
-    else:
-      discard
+type
+  TemplateApplyPlan = object
+    createDirs: seq[string]
+    copyFiles: seq[string]
+    symlinks: seq[string]
+    replacements: seq[string]
+    conflicts: seq[string]
+    rejectedSymlinks: seq[string]
+    skippedReplacements: seq[string]
 
-proc replacePlaceholders(targetDir, projectName: string) =
+proc childRel(parent, child: string): string =
+  if parent.len == 0: child else: parent / child
+
+proc hasNul(content: string): bool =
+  for ch in content:
+    if ch == '\0':
+      return true
+
+proc placeholderPairs(projectName: string): seq[(string, string)] =
   let kebab = projectName.replace("_", "-")
   let kebabLower = kebab.toLowerAscii()
-  let replacements = [
+  let snake = projectName.replace("-", "_")
+  let snakeLower = snake.toLowerAscii()
+  @[
     ("{{PROJECT_NAME}}", projectName),
     ("{{project_name}}", projectName),
     ("{{PROJECT-NAME}}", kebab),
-    ("{{project-name}}", kebabLower)
+    ("{{project-name}}", kebabLower),
+    ("{{name}}", projectName),
+    ("{{NAME}}", projectName.toUpperAscii()),
+    ("{{kebab_name}}", kebabLower),
+    ("{{snake_name}}", snakeLower)
   ]
-  for kind, path in walkDir(targetDir):
+
+proc replacementStatus(path, rel, projectName: string): tuple[needed: bool;
+    skipped: string] =
+  if projectName.len == 0:
+    return (false, "")
+  try:
+    let content = readFile(path)
+    if hasNul(content):
+      return (false, rel & " (binary)")
+    for pair in placeholderPairs(projectName):
+      if content.contains(pair[0]):
+        return (true, "")
+  except CatchableError as e:
+    return (false, rel & " (" & e.msg & ")")
+  (false, "")
+
+proc addConflictIfNeeded(plan: var TemplateApplyPlan; target, rel: string) =
+  if fileExists(target) or dirExists(target):
+    plan.conflicts.add(rel)
+
+proc addFileToPlan(plan: var TemplateApplyPlan; srcPath, targetRoot, rel,
+    projectName: string) =
+  plan.copyFiles.add(rel)
+  addConflictIfNeeded(plan, targetRoot / rel, rel)
+  let status = replacementStatus(srcPath, rel, projectName)
+  if status.needed:
+    plan.replacements.add(rel)
+  elif status.skipped.len > 0:
+    plan.skippedReplacements.add(status.skipped)
+
+proc addSymlinkToPlan(plan: var TemplateApplyPlan; targetRoot, rel: string;
+    allowSymlinks: bool) =
+  if allowSymlinks:
+    plan.symlinks.add(rel)
+    addConflictIfNeeded(plan, targetRoot / rel, rel)
+  else:
+    plan.rejectedSymlinks.add(rel)
+
+proc collectTemplateDir(plan: var TemplateApplyPlan; srcRoot, targetRoot,
+    relRoot, projectName: string; allowSymlinks: bool) =
+  for kind, path in walkDir(srcRoot):
+    let rel = childRel(relRoot, splitPath(path).tail)
     case kind
-    of pcFile:
-      try:
-        var content = readFile(path)
-        let original = content
-        for pair in replacements:
-          content = content.replace(pair[0], pair[1])
-        if content != original:
-          writeFile(path, content)
-      except CatchableError:
-        discard
     of pcDir:
-      replacePlaceholders(path, projectName)
-    else:
-      discard
+      plan.createDirs.add(rel)
+      collectTemplateDir(plan, path, targetRoot, rel, projectName, allowSymlinks)
+    of pcFile:
+      addFileToPlan(plan, path, targetRoot, rel, projectName)
+    of pcLinkToFile, pcLinkToDir:
+      addSymlinkToPlan(plan, targetRoot, rel, allowSymlinks)
+
+proc buildTemplatePlan(srcPath, targetRoot, projectName: string;
+    allowSymlinks: bool): TemplateApplyPlan =
+  if dirExists(srcPath):
+    collectTemplateDir(result, srcPath, targetRoot, "", projectName, allowSymlinks)
+  elif fileExists(srcPath):
+    addFileToPlan(result, srcPath, targetRoot, splitPath(srcPath).tail, projectName)
+  else:
+    die("Template path '" & srcPath & "' does not exist")
+
+proc printList(title: string; items: seq[string]) =
+  if items.len == 0:
+    return
+  echo title & ":"
+  for item in items:
+    echo "  " & item
+  echo ""
+
+proc printTemplatePlan(templateName, targetPath: string;
+    plan: TemplateApplyPlan) =
+  echo "Template: " & templateName
+  echo "Target: " & targetPath
+  echo ""
+  printList("Create directories", plan.createDirs)
+  printList("Copy files", plan.copyFiles)
+  printList("Create symlinks", plan.symlinks)
+  printList("Replace placeholders", plan.replacements)
+  printList("Conflicts", plan.conflicts)
+  printList("Rejected symlinks", plan.rejectedSymlinks)
+  printList("Skipped placeholder replacements", plan.skippedReplacements)
+
+proc replacePlaceholdersInFile(path, rel, projectName: string;
+    skipped: var seq[string]) =
+  if projectName.len == 0:
+    return
+  try:
+    var content = readFile(path)
+    if hasNul(content):
+      skipped.add(rel & " (binary)")
+      return
+    let original = content
+    for pair in placeholderPairs(projectName):
+      content = content.replace(pair[0], pair[1])
+    if content != original:
+      writeFile(path, content)
+  except CatchableError as e:
+    skipped.add(rel & " (" & e.msg & ")")
+
+proc copyTemplateFile(srcPath, targetPath, rel, projectName: string; force,
+    skipExisting: bool; skippedReplacements: var seq[string]) =
+  if fileExists(targetPath) or dirExists(targetPath):
+    if skipExisting:
+      return
+    if not force:
+      die("Template target conflict: " & rel)
+  createDir(parentDir(targetPath))
+  copyFile(srcPath, targetPath)
+  replacePlaceholdersInFile(targetPath, rel, projectName, skippedReplacements)
+
+proc copyTemplateSymlink(srcPath, targetPath, rel: string; force,
+    skipExisting: bool) =
+  if fileExists(targetPath) or dirExists(targetPath):
+    if skipExisting:
+      return
+    if not force:
+      die("Template target conflict: " & rel)
+    removeFile(targetPath)
+  createDir(parentDir(targetPath))
+  createSymlink(expandSymlink(srcPath), targetPath)
+
+proc applyTemplateDir(srcRoot, targetRoot, relRoot, projectName: string; force,
+    skipExisting, allowSymlinks: bool; skippedReplacements: var seq[string]) =
+  createDir(targetRoot / relRoot)
+  for kind, path in walkDir(srcRoot):
+    let rel = childRel(relRoot, splitPath(path).tail)
+    let target = targetRoot / rel
+    case kind
+    of pcDir:
+      applyTemplateDir(path, targetRoot, rel, projectName, force, skipExisting,
+          allowSymlinks, skippedReplacements)
+    of pcFile:
+      copyTemplateFile(path, target, rel, projectName, force, skipExisting,
+          skippedReplacements)
+    of pcLinkToFile, pcLinkToDir:
+      if not allowSymlinks:
+        die("Template contains symlink '" & rel & "'; use --allow-symlinks")
+      copyTemplateSymlink(path, target, rel, force, skipExisting)
+
+proc applyTemplate(srcPath, targetRoot, projectName: string; force,
+    skipExisting, allowSymlinks: bool): seq[string] =
+  if dirExists(srcPath):
+    applyTemplateDir(srcPath, targetRoot, "", projectName, force, skipExisting,
+        allowSymlinks, result)
+  elif fileExists(srcPath):
+    copyTemplateFile(srcPath, targetRoot / splitPath(srcPath).tail,
+        splitPath(srcPath).tail, projectName, force, skipExisting, result)
+  else:
+    die("Template path '" & srcPath & "' does not exist")
 
 proc handleTemplate(argsIn: seq[string]) =
   var args = argsIn
@@ -888,8 +1699,11 @@ proc handleTemplate(argsIn: seq[string]) =
     echo "Template '" & name & "' added successfully"
   of "list", "l", "ls":
     let raw = popFlag(args, ["-r", "--raw"])
+    let asJson = popFlag(args, ["--json"])
     rejectUnknownOptions(args)
-    if raw:
+    if asJson:
+      printJsonArray(templates, templateJson)
+    elif raw:
       for tmpl in templates:
         echo tmpl.name & "\t" & unknownIfEmpty(tmpl.language) & "\t" & tmpl.path
     else:
@@ -920,10 +1734,81 @@ proc handleTemplate(argsIn: seq[string]) =
         echo "Updated: " & displayStamp(tmpl.updatedAt)
         return
     die("Template '" & name & "' not found")
+  of "set", "update", "edit":
+    let description = popValue(args, ["-d", "--description", "--desc"])
+    let templatePath = popValue(args, ["-p", "--path"])
+    let language = popValue(args, ["-l", "--language"])
+    let framework = popValue(args, ["-f", "--framework"])
+    rejectUnknownOptions(args)
+    requireArgs(args, 1, "dp template set NAME [options]")
+    if description.len == 0 and templatePath.len == 0 and language.len == 0 and
+        framework.len == 0:
+      die("No template fields were provided", 2)
+    if templatePath.len > 0 and not (fileExists(templatePath) or dirExists(
+        templatePath)):
+      die("Template path '" & templatePath & "' does not exist")
+    let name = args[0]
+    for i in 0 .. templates.high:
+      if templates[i].name == name:
+        if description.len > 0:
+          templates[i].description = description
+        if templatePath.len > 0:
+          templates[i].path = templatePath
+        if language.len > 0:
+          templates[i].language = language
+        if framework.len > 0:
+          templates[i].framework = framework
+        templates[i].updatedAt = nowStamp()
+        writeTemplates(path, templates)
+        echo "Template '" & name & "' updated successfully"
+        return
+    die("Template '" & name & "' not found")
+  of "rename", "mv":
+    rejectUnknownOptions(args)
+    requireArgs(args, 2, "dp template rename OLD NEW")
+    let oldName = args[0]
+    let newName = args[1]
+    if templates.anyIt(it.name == newName):
+      die("Template '" & newName & "' already exists")
+    for i in 0 .. templates.high:
+      if templates[i].name == oldName:
+        templates[i].name = newName
+        templates[i].updatedAt = nowStamp()
+        writeTemplates(path, templates)
+        echo "Template '" & oldName & "' renamed to '" & newName & "'"
+        return
+    die("Template '" & oldName & "' not found")
+  of "tag", "tags":
+    rejectUnknownOptions(args)
+    requireArgs(args, 3, "dp template tag add|remove NAME TAG")
+    let action = args[0]
+    let name = args[1]
+    let tag = args[2]
+    for i in 0 .. templates.high:
+      if templates[i].name == name:
+        case action
+        of "add":
+          if not templates[i].tags.contains(tag):
+            templates[i].tags.add(tag)
+        of "remove", "rm":
+          templates[i].tags = templates[i].tags.filterIt(it != tag)
+        else:
+          die("Unknown template tag action: " & action, 2)
+        templates[i].updatedAt = nowStamp()
+        writeTemplates(path, templates)
+        echo "Template '" & name & "' tags updated"
+        return
+    die("Template '" & name & "' not found")
   of "apply", "use", "create":
     let projectName = popValue(args, ["-n", "--name"])
+    let dryRun = popFlag(args, ["--dry-run"])
+    let force = popFlag(args, ["--force"])
+    let skipExisting = popFlag(args, ["--skip-existing"])
+    let allowSymlinks = popFlag(args, ["--allow-symlinks"])
     rejectUnknownOptions(args)
     requireArgs(args, 2, "dp template apply TEMPLATE TARGET_PATH [--name PROJECT_NAME]")
+    if force and skipExisting:
+      die("--force and --skip-existing cannot be used together", 2)
     let templateName = args[0]
     let targetPath = args[1]
     var found: Template
@@ -935,16 +1820,27 @@ proc handleTemplate(argsIn: seq[string]) =
         break
     if not hasFound:
       die("Template '" & templateName & "' not found")
-    createDir(targetPath)
-    if dirExists(found.path):
-      copyDirRecursive(found.path, targetPath)
-    elif fileExists(found.path):
-      copyFile(found.path, targetPath / splitPath(found.path).tail)
-    else:
-      die("Template path '" & found.path & "' does not exist")
-    if projectName.len > 0:
-      replacePlaceholders(targetPath, projectName)
-    echo "Template '" & templateName & "' successfully applied to '" & targetPath & "'"
+
+    let plan = buildTemplatePlan(found.path, targetPath, projectName, allowSymlinks)
+    if dryRun:
+      printTemplatePlan(templateName, targetPath, plan)
+      if plan.rejectedSymlinks.len > 0:
+        die("Template contains symlinks; use --allow-symlinks")
+      if plan.conflicts.len > 0 and not (force or skipExisting):
+        die("Template target has conflicts; use --force or --skip-existing")
+      return
+    if plan.rejectedSymlinks.len > 0:
+      printTemplatePlan(templateName, targetPath, plan)
+      die("Template contains symlinks; use --allow-symlinks")
+    if plan.conflicts.len > 0 and not (force or skipExisting):
+      printTemplatePlan(templateName, targetPath, plan)
+      die("Template target has conflicts; use --force or --skip-existing")
+
+    let skippedReplacements = applyTemplate(found.path, targetPath, projectName,
+        force, skipExisting, allowSymlinks)
+    printList("Skipped placeholder replacements", skippedReplacements)
+    echo "Template '" & templateName & "' successfully applied to '" &
+        targetPath & "'"
   of "remove", "rm", "delete", "del":
     rejectUnknownOptions(args)
     requireArgs(args, 1, "dp template remove NAME")
@@ -958,8 +1854,40 @@ proc handleTemplate(argsIn: seq[string]) =
   else:
     die("Unknown template command: " & command, 2)
 
+proc handleBackup(argsIn: seq[string]) =
+  var args = argsIn
+  if args.len == 0 or popFlag(args, ["-h", "--help"]):
+    showBackupHelp()
+    return
+
+  let command = args[0]
+  args.delete(0)
+  case command
+  of "create", "new":
+    let destination = popValue(args, ["-p", "--path"])
+    rejectUnknownOptions(args)
+    if args.len > 0:
+      die("Usage: dp backup create [--path PATH]", 2)
+    try:
+      let backupPath = createBackup(destination)
+      echo "Backup created: " & backupPath
+    except CatchableError as e:
+      die(e.msg)
+  of "restore":
+    let force = popFlag(args, ["--force"])
+    rejectUnknownOptions(args)
+    requireArgs(args, 1, "dp backup restore PATH [--force]")
+    try:
+      restoreBackup(args[0], force)
+      echo "Backup restored from: " & args[0]
+    except CatchableError as e:
+      die(e.msg)
+  else:
+    die("Unknown backup command: " & command, 2)
+
 proc interfaceExists(iface: string): bool =
-  iface == "local" or not dirExists("/sys/class/net") or dirExists("/sys/class/net" / iface)
+  iface == "local" or not dirExists("/sys/class/net") or dirExists(
+      "/sys/class/net" / iface)
 
 proc parseHost(value: string): Host =
   let parts = value.split(":")
@@ -986,6 +1914,40 @@ proc parseHost(value: string): Host =
     die("Invalid port format: " & result.port, 2)
   if not interfaceExists(result.iface):
     die("Invalid iface name: " & result.iface, 2)
+
+proc sshArgs(machine: Machine; host: Host; remoteCommand: string): seq[string] =
+  if machine.key.len > 0:
+    result.add(@["-i", machine.key])
+  if host.port != "22":
+    result.add(@["-p", host.port])
+  result.add(machine.username & "@" & host.ip)
+  if remoteCommand.len > 0:
+    result.add(remoteCommand)
+
+proc shellDisplay(command: string; args: seq[string]): string =
+  result = command
+  for arg in args:
+    result.add(" " & quoteShell(arg))
+
+proc writeSshConfig(machine: Machine) =
+  for host in machine.hosts:
+    echo "Host " & machine.name & "-" & host.iface
+    echo "  HostName " & host.ip
+    echo "  User " & machine.username
+    echo "  Port " & host.port
+    if machine.key.len > 0:
+      echo "  IdentityFile " & machine.key
+    echo ""
+
+proc tcpReachable(host: Host; timeoutMs: int): bool =
+  var socket = newSocket()
+  try:
+    socket.connect(host.ip, Port(parseInt(host.port)), timeoutMs)
+    result = true
+  except CatchableError:
+    result = false
+  finally:
+    socket.close()
 
 proc handleMachine(argsIn: seq[string]) =
   var args = argsIn
@@ -1014,7 +1976,8 @@ proc handleMachine(argsIn: seq[string]) =
     if idx >= 0:
       for host in hosts:
         if machines[idx].hosts.anyIt(it.iface == host.iface):
-          die("Error: Machine with name " & name & " and interface " & host.iface & " already exists")
+          die("Error: Machine with name " & name & " and interface " &
+              host.iface & " already exists")
       machines[idx].hosts.add(hosts)
       machines[idx].username = username
       machines[idx].key = key
@@ -1024,12 +1987,16 @@ proc handleMachine(argsIn: seq[string]) =
     echo "Machine '" & name & "' added successfully"
   of "list", "l", "ls":
     let raw = popFlag(args, ["-r", "--raw"])
+    let asJson = popFlag(args, ["--json"])
     discard popFlag(args, ["-H", "--hosty"])
     rejectUnknownOptions(args)
-    if raw:
+    if asJson:
+      printJsonArray(machines, machineJson)
+    elif raw:
       for machine in machines:
         for host in machine.hosts:
-          echo machine.name & "\t" & machine.username & "\t" & host.ip & "\t" & host.port & "\t" & host.iface
+          echo machine.name & "\t" & machine.username & "\t" & host.ip & "\t" &
+              host.port & "\t" & host.iface
     else:
       echo table(
         @["Name", "Username", "Hosts", "Key"],
@@ -1057,16 +2024,82 @@ proc handleMachine(argsIn: seq[string]) =
             echo "  " & host.ip & ":" & host.port & " (" & host.iface & ")"
         return
     die("Machine '" & name & "' not found")
+  of "set", "update", "edit":
+    let username = popValue(args, ["-u", "--username"])
+    let key = popValue(args, ["-k", "--key"])
+    rejectUnknownOptions(args)
+    requireArgs(args, 1, "dp machine set NAME [--username USER] [--key KEY]")
+    if username.len == 0 and key.len == 0:
+      die("No machine fields were provided", 2)
+    let name = args[0]
+    for i in 0 .. machines.high:
+      if machines[i].name == name:
+        if username.len > 0:
+          machines[i].username = username
+        if key.len > 0:
+          machines[i].key = key
+        writeMachines(path, machines)
+        echo "Machine '" & name & "' updated successfully"
+        return
+    die("Machine '" & name & "' not found")
+  of "rename", "mv":
+    rejectUnknownOptions(args)
+    requireArgs(args, 2, "dp machine rename OLD NEW")
+    let oldName = args[0]
+    let newName = args[1]
+    if machines.anyIt(it.name == newName):
+      die("Machine '" & newName & "' already exists")
+    for i in 0 .. machines.high:
+      if machines[i].name == oldName:
+        machines[i].name = newName
+        writeMachines(path, machines)
+        echo "Machine '" & oldName & "' renamed to '" & newName & "'"
+        return
+    die("Machine '" & oldName & "' not found")
+  of "host", "hosts":
+    rejectUnknownOptions(args)
+    requireArgs(args, 3, "dp machine host add|remove NAME HOST_OR_IFACE")
+    let action = args[0]
+    let name = args[1]
+    var idx = -1
+    for i, machine in machines:
+      if machine.name == name:
+        idx = i
+        break
+    if idx < 0:
+      die("Machine '" & name & "' not found")
+    case action
+    of "add":
+      for rawHost in args[2 .. ^1]:
+        let host = parseHost(rawHost)
+        if machines[idx].hosts.anyIt(it.iface == host.iface):
+          die("Error: Machine with name " & name & " and interface " &
+              host.iface & " already exists")
+        machines[idx].hosts.add(host)
+      writeMachines(path, machines)
+      echo "Machine '" & name & "' hosts updated"
+    of "remove", "rm":
+      let iface = args[2]
+      let before = machines[idx].hosts.len
+      machines[idx].hosts = machines[idx].hosts.filterIt(it.iface != iface)
+      if machines[idx].hosts.len == before:
+        die("Host interface '" & iface & "' not found on machine '" & name & "'")
+      writeMachines(path, machines)
+      echo "Machine '" & name & "' hosts updated"
+    else:
+      die("Unknown machine host action: " & action, 2)
   of "pick", "p", "select":
     rejectUnknownOptions(args)
     for machine in machines:
       for host in machine.hosts:
-        echo machine.name & "\t" & machine.username & "\t" & host.ip & "\t" & host.port & "\t" & host.iface
+        echo machine.name & "\t" & machine.username & "\t" & host.ip & "\t" &
+            host.port & "\t" & host.iface
   of "connect", "c", "ssh":
     let iface = popValue(args, ["-i", "--interface"])
     let remoteCommand = popValue(args, ["-c", "--command"])
+    let dryRun = popFlag(args, ["--dry-run", "--print-command"])
     rejectUnknownOptions(args)
-    requireArgs(args, 1, "dp machine connect NAME [--interface IFACE] [--command COMMAND]")
+    requireArgs(args, 1, "dp machine connect NAME [--interface IFACE] [--command COMMAND] [--dry-run]")
     let name = args[0]
     var machine: Machine
     var hasMachine = false
@@ -1087,18 +2120,69 @@ proc handleMachine(argsIn: seq[string]) =
           break
     if not hasHost:
       die("No suitable host found for machine '" & name & "'")
-    var cmd = "ssh"
-    if machine.key.len > 0:
-      cmd.add(" -i " & quoteShell(machine.key))
-    cmd.add(" " & quoteShell(machine.username & "@" & host.ip))
-    if host.port != "22":
-      cmd.add(" -p " & quoteShell(host.port))
-    if remoteCommand.len > 0:
-      cmd.add(" " & quoteShell(remoteCommand))
+    let connectArgs = sshArgs(machine, host, remoteCommand)
+    if dryRun:
+      echo shellDisplay("ssh", connectArgs)
+      return
     echo "Connecting to " & name & " via " & host.iface & "..."
-    let status = execCmd(cmd)
-    if status != 0:
-      quit(status)
+    try:
+      let process = startProcess("ssh", args = connectArgs, options = {poUsePath})
+      let status = process.waitForExit()
+      process.close()
+      if status != 0:
+        quit(status)
+    except CatchableError as e:
+      die("Unable to start ssh: " & e.msg)
+  of "ssh-config", "config":
+    rejectUnknownOptions(args)
+    if args.len > 1:
+      die("Usage: dp machine ssh-config [NAME]", 2)
+    if args.len == 0:
+      for machine in machines:
+        writeSshConfig(machine)
+    else:
+      let name = args[0]
+      for machine in machines:
+        if machine.name == name:
+          writeSshConfig(machine)
+          return
+      die("Machine '" & name & "' not found")
+  of "check", "health":
+    let all = popFlag(args, ["--all"])
+    let timeoutValue = popValue(args, ["--timeout"], "1000")
+    rejectUnknownOptions(args)
+    var timeoutMs = 1000
+    try:
+      timeoutMs = parseInt(timeoutValue)
+    except ValueError:
+      die("Invalid timeout: " & timeoutValue, 2)
+    if timeoutMs < 1:
+      die("Invalid timeout: " & timeoutValue, 2)
+    if not all:
+      requireArgs(args, 1, "dp machine check NAME [--timeout MS]")
+    var rows: seq[seq[string]] = @[]
+    var failed = false
+    for machine in machines:
+      if all or machine.name == args[0]:
+        for host in machine.hosts:
+          let ok = tcpReachable(host, timeoutMs)
+          if not ok:
+            failed = true
+          rows.add(@[
+            machine.name,
+            host.iface,
+            host.ip,
+            host.port,
+            if ok: "reachable" else: "unreachable"
+          ])
+    if rows.len == 0:
+      if all:
+        die("No machines found")
+      else:
+        die("Machine '" & args[0] & "' not found")
+    echo table(@["Machine", "Iface", "IP", "Port", "Status"], rows)
+    if failed:
+      quit(1)
   of "remove", "r", "rm", "delete":
     rejectUnknownOptions(args)
     requireArgs(args, 1, "dp machine remove NAME")
@@ -1111,6 +2195,141 @@ proc handleMachine(argsIn: seq[string]) =
     echo "Machine '" & name & "' removed successfully"
   else:
     die("Unknown machine command: " & command, 2)
+
+proc allDataJson(): string =
+  let projects = parseProjects(ensureProjectsFile())
+  let workspaces = parseWorkspaces(ensureWorkspacesFile())
+  let machines = parseMachines(ensureMachinesFile())
+  let templates = parseTemplates(ensureTemplatesFile())
+
+  proc arrayJson[T](items: seq[T]; render: proc(item: T): string): string =
+    result = "["
+    for i, item in items:
+      if i > 0:
+        result.add(", ")
+      result.add(render(item))
+    result.add("]")
+
+  "{\"projects\": " & arrayJson(projects, projectJson) & ", \"workspaces\": " &
+      arrayJson(workspaces, workspaceJson) & ", \"machines\": " &
+      arrayJson(machines, machineJson) & ", \"templates\": " &
+      arrayJson(templates, templateJson) & "}"
+
+proc handleExport(argsIn: seq[string]) =
+  var args = argsIn
+  let format = popValue(args, ["--format"], "toml")
+  let destination = popValue(args, ["-p", "--path"])
+  rejectUnknownOptions(args)
+  if args.len > 0:
+    die("Usage: dp export [--format toml|json] [--path PATH]", 2)
+  case format
+  of "toml":
+    try:
+      let backupPath = createBackup(destination)
+      echo "Exported TOML data: " & backupPath
+    except CatchableError as e:
+      die(e.msg)
+  of "json":
+    let data = allDataJson()
+    if destination.len > 0:
+      atomicWriteFile(destination, data & "\n")
+      echo "Exported JSON data: " & destination
+    else:
+      echo data
+  else:
+    die("Unknown export format: " & format, 2)
+
+proc mergeImport(path: string) =
+  if not dirExists(path):
+    die("Import path does not exist or is not a directory: " & path)
+
+  var projects = parseProjects(ensureProjectsFile())
+  for item in parseProjects(path / "projects.toml"):
+    if not projects.anyIt(it.name == item.name and it.namespace ==
+        item.namespace):
+      projects.add(item)
+  writeProjects(ensureProjectsFile(), projects)
+
+  var workspaces = parseWorkspaces(ensureWorkspacesFile())
+  for item in parseWorkspaces(path / "workspaces.toml"):
+    if not workspaces.anyIt(it.name == item.name):
+      workspaces.add(item)
+  writeWorkspaces(ensureWorkspacesFile(), workspaces)
+
+  var machines = parseMachines(ensureMachinesFile())
+  for item in parseMachines(path / "machines.toml"):
+    if not machines.anyIt(it.name == item.name):
+      machines.add(item)
+  writeMachines(ensureMachinesFile(), machines)
+
+  var templates = parseTemplates(ensureTemplatesFile())
+  for item in parseTemplates(path / "templates.toml"):
+    if not templates.anyIt(it.name == item.name):
+      templates.add(item)
+  writeTemplates(ensureTemplatesFile(), templates)
+
+proc handleImport(argsIn: seq[string]) =
+  var args = argsIn
+  let force = popFlag(args, ["--force"])
+  let merge = popFlag(args, ["--merge"])
+  rejectUnknownOptions(args)
+  requireArgs(args, 1, "dp import PATH [--merge|--force]")
+  if force and merge:
+    die("--force and --merge cannot be used together", 2)
+  try:
+    if merge:
+      mergeImport(args[0])
+      echo "Import merged from: " & args[0]
+    else:
+      restoreBackup(args[0], force)
+      echo "Import restored from: " & args[0]
+  except CatchableError as e:
+    die(e.msg)
+
+proc handleCompletions(argsIn: seq[string]) =
+  var args = argsIn
+  rejectUnknownOptions(args)
+  requireArgs(args, 1, "dp completions bash|zsh|fish")
+  let commands = "project workspace machine template backup export import completions tui help"
+  case args[0]
+  of "bash":
+    echo "complete -W '" & commands & "' dp"
+  of "zsh":
+    echo "#compdef dp"
+    echo "_arguments '1:command:(" & commands & ")'"
+  of "fish":
+    for command in commands.splitWhitespace():
+      echo "complete -c dp -f -a " & command
+  else:
+    die("Unknown completion shell: " & args[0], 2)
+
+proc commandReferenceMarkdown(): string =
+  """
+# devpilot command reference
+
+## Commands
+
+- `dp project ...` — manage projects, discovery, import, JSON listing.
+- `dp workspace ...` — manage workspaces and run/status/open/env actions.
+- `dp machine ...` — manage SSH hosts, SSH config, health checks.
+- `dp template ...` — manage and safely apply project templates.
+- `dp backup ...` — create and restore data backups.
+- `dp export ...` / `dp import ...` — move devpilot data between machines.
+- `dp completions SHELL` — generate bash, zsh, or fish completions.
+- `dp tui` — open the terminal dashboard.
+"""
+
+proc handleHelpCommand(argsIn: seq[string]) =
+  var args = argsIn
+  let man = popFlag(args, ["--man"])
+  let markdown = popFlag(args, ["--markdown"])
+  rejectUnknownOptions(args)
+  if man:
+    echo commandReferenceMarkdown()
+  elif markdown:
+    echo commandReferenceMarkdown()
+  else:
+    showHelp()
 
 proc main*() =
   var args = commandLineParams()
@@ -1126,6 +2345,10 @@ proc main*() =
   if popFlag(args, ["--about"]):
     echo About
     return
+  if args.len > 0 and args[0] == "help":
+    args.delete(0)
+    handleHelpCommand(args)
+    return
 
   requireArgs(args, 1, "dp <COMMAND>")
   let command = args[0]
@@ -1139,6 +2362,14 @@ proc main*() =
     handleMachine(args)
   of "template", "t", "templates", "temp":
     handleTemplate(args)
+  of "backup", "bk", "backups":
+    handleBackup(args)
+  of "export":
+    handleExport(args)
+  of "import":
+    handleImport(args)
+  of "completions", "completion":
+    handleCompletions(args)
   else:
     die("Unknown command: " & command, 2)
 

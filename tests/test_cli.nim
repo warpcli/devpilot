@@ -1,27 +1,11 @@
-import std/[os, osproc, strutils]
+import std/[os, strutils]
 
-const Binary = "/tmp/devpilot-nim-test-dp"
+import test_support
 
-proc run(command: string): tuple[output: string, code: int] =
-  let output = execCmdEx(command)
-  (output.output, output.exitCode)
+compileBinary()
 
-proc checked(command: string): string =
-  let res = run(command)
-  doAssert res.code == 0, command & "\n" & res.output
-  res.output
-
-discard checked("nim c --out:" & quoteShell(Binary) & " src/dp.nim")
-
-let dataHome = "/tmp/devpilot-nim-test-data"
-let home = "/tmp/devpilot-nim-test-home"
-removeDir(dataHome)
-removeDir(home)
-createDir(dataHome)
-createDir(home)
-
-let envPrefix = "XDG_DATA_HOME=" & quoteShell(dataHome) & " HOME=" & quoteShell(home) & " "
-let dp = envPrefix & quoteShell(Binary) & " "
+let envPrefix = freshEnv("cli")
+let dp = dp(envPrefix)
 
 doAssert checked(dp & "--version").strip() == "0.1.10"
 let tuiSnapshot = checked(dp & "tui --snapshot")
@@ -53,7 +37,8 @@ removeDir(templateRoot)
 removeDir(targetRoot)
 createDir(templateRoot)
 writeFile(templateRoot / "README.md", "hello {{PROJECT_NAME}}")
-discard checked(dp & "template add base --description sample --path " & quoteShell(templateRoot) & " --language go")
+discard checked(dp & "template add base --description sample --path " &
+    quoteShell(templateRoot) & " --language go")
 discard checked(dp & "template apply base " & quoteShell(targetRoot) & " --name sample_app")
 doAssert readFile(targetRoot / "README.md") == "hello sample_app"
 
