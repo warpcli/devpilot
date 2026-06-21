@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title></title>
+        <title>devpilot</title>
         <meta name="robots" content="noindex">
 
 
@@ -25,40 +25,28 @@
         <link rel="stylesheet" href="fonts/fonts.css">
 
         <!-- Highlight.js Stylesheets -->
-        <link rel="stylesheet" id="highlight-css" href="highlight.css">
-        <link rel="stylesheet" id="tomorrow-night-css" href="tomorrow-night.css">
-        <link rel="stylesheet" id="ayu-highlight-css" href="ayu-highlight.css">
+        <link rel="stylesheet" href="highlight.css">
+        <link rel="stylesheet" href="tomorrow-night.css">
+        <link rel="stylesheet" href="ayu-highlight.css">
 
         <!-- Custom theme stylesheets -->
 
 
-        <!-- Provide site root and default themes to javascript -->
+        <!-- Provide site root to javascript -->
         <script>
-            const path_to_root = "";
-            const default_light_theme = "navy";
-            const default_dark_theme = "navy";
+            var path_to_root = "";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "navy";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc.js"></script>
     </head>
     <body>
-    <div id="mdbook-help-container">
-        <div id="mdbook-help-popup">
-            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
-            <div>
-                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
-                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
-                <p>Press <kbd>?</kbd> to show this help</p>
-                <p>Press <kbd>Esc</kbd> to hide this help</p>
-            </div>
-        </div>
-    </div>
     <div id="body-container">
         <!-- Work around some values being stored in localStorage wrapped in quotes -->
         <script>
             try {
-                let theme = localStorage.getItem('mdbook-theme');
-                let sidebar = localStorage.getItem('mdbook-sidebar');
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
 
                 if (theme.startsWith('"') && theme.endsWith('"')) {
                     localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
@@ -72,8 +60,7 @@
 
         <!-- Set the theme before any content is loaded, prevents flash -->
         <script>
-            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
-            let theme;
+            var theme;
             try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
             if (theme === null || theme === undefined) { theme = default_theme; }
             const html = document.documentElement;
@@ -86,8 +73,8 @@
 
         <!-- Hide / unhide sidebar before it is displayed -->
         <script>
-            let sidebar = null;
-            const sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
             if (document.body.clientWidth >= 1080) {
                 try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
                 sidebar = sidebar || 'visible';
@@ -123,19 +110,18 @@
                             <i class="fa fa-paint-brush"></i>
                         </button>
                         <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
-                            <li role="none"><button role="menuitem" class="theme" id="default_theme">Auto</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
                         </ul>
-                        <button id="search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="searchbar">
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
                             <i class="fa fa-search"></i>
                         </button>
                     </div>
 
-                    <h1 class="menu-title"></h1>
+                    <h1 class="menu-title">devpilot</h1>
 
                     <div class="right-buttons">
                         <a href="print.html" title="Print this book" aria-label="Print this book">
@@ -167,7 +153,100 @@
 
                 <div id="content" class="content">
                     <main>
-                        <div style="break-before: page; page-break-before: always;"></div>
+                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
+<p><code>devpilot</code> is a language-neutral development workflow CLI. It tracks projects,
+workspaces, machines, reusable templates, and the local metadata needed to move
+between them quickly.</p>
+<p>The tool is implemented in Nim, but the product is not Nim-specific: projects
+can be Go, Rust, Nim, Python, Node, Zig, or anything else with a filesystem
+path.</p>
+<p>Core commands:</p>
+<ul>
+<li><code>dp project ...</code></li>
+<li><code>dp workspace ...</code></li>
+<li><code>dp machine ...</code></li>
+<li><code>dp template ...</code></li>
+<li><code>dp backup ...</code></li>
+<li><code>dp tui</code></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
+<p>Build locally with the repo Makefile:</p>
+<pre><code class="language-sh">make build
+</code></pre>
+<p>The binary is written to <code>./dp</code>.</p>
+<p>Run the local verification gate:</p>
+<pre><code class="language-sh">make verify
+make build
+make clean
+</code></pre>
+<p>Install into <code>~/.local/bin</code>:</p>
+<pre><code class="language-sh">make install
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="projects"><a class="header" href="#projects">Projects</a></h1>
+<p>Projects are named paths with optional namespace, language, framework, tags,
+and timestamps.</p>
+<pre><code class="language-sh">dp project add api --path ~/code/api --language Go --tags service
+dp project list --json
+dp project info api
+dp project set api --framework cobra
+dp project discover ~/code --depth 2
+dp project import ~/code --dry-run
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="workspaces"><a class="header" href="#workspaces">Workspaces</a></h1>
+<p>Workspaces group projects and components so actions can run across many paths.</p>
+<pre><code class="language-sh">dp workspace add lab --path ~/code --projects api
+dp workspace status lab
+dp workspace run lab -- git status --short
+dp workspace open lab --dry-run
+dp workspace env lab --format direnv
+dp workspace discover lab ~/code
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="machines"><a class="header" href="#machines">Machines</a></h1>
+<p>Machines store SSH targets and host interfaces.</p>
+<pre><code class="language-sh">dp machine add lab 127.0.0.1:22:local --username "$USER"
+dp machine ssh-config lab
+dp machine connect lab --dry-run
+dp machine check lab --timeout 1000
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="templates"><a class="header" href="#templates">Templates</a></h1>
+<p>Templates are copied safely with conflict detection, optional dry-runs, and
+explicit symlink handling.</p>
+<pre><code class="language-sh">dp template add base --description "Base app" --path ./template
+dp template apply base /tmp/new-app --name new_app --dry-run
+dp template apply base /tmp/new-app --name new_app --skip-existing
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="tui"><a class="header" href="#tui">TUI</a></h1>
+<p>The TUI provides a terminal dashboard over the same command/storage logic used
+by the CLI.</p>
+<pre><code class="language-sh">dp tui
+dp tui --snapshot
+dp tui --command "project list"
+</code></pre>
+<p>Inside the TUI, <code>a</code> opens field-based add forms, <code>:</code> opens a command palette,
+and overlays support scrolling for long output.</p>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="data-and-backup"><a class="header" href="#data-and-backup">Data and backup</a></h1>
+<p>Data is stored under <code>$XDG_DATA_HOME/devpilot</code> or
+<code>~/.local/share/devpilot</code>.</p>
+<p>Files:</p>
+<ul>
+<li><code>projects.toml</code></li>
+<li><code>workspaces.toml</code></li>
+<li><code>machines.toml</code></li>
+<li><code>templates.toml</code></li>
+</ul>
+<p>Backup and restore:</p>
+<pre><code class="language-sh">dp backup create --path ./devpilot-backup
+dp backup restore ./devpilot-backup --force
+dp export --format json
+dp import ./devpilot-backup --merge
+</code></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="shell-completions"><a class="header" href="#shell-completions">Shell completions</a></h1>
+<p>Generate completion scripts:</p>
+<pre><code class="language-sh">dp completions bash
+dp completions zsh
+dp completions fish
+</code></pre>
+
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">

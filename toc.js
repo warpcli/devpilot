@@ -8,9 +8,9 @@ class MDBookSidebarScrollbox extends HTMLElement {
         super();
     }
     connectedCallback() {
-        this.innerHTML = '<ol class="chapter"><li class="chapter-item expanded "><a href="chapter_1.html"><strong aria-hidden="true">1.</strong> Intro</a></li><li class="chapter-item expanded "><a href="chapter_2.html"><strong aria-hidden="true">2.</strong> Installation</a></li></ol>';
+        this.innerHTML = '<ol class="chapter"><li class="chapter-item expanded "><a href="chapter_1.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="chapter_2.html"><strong aria-hidden="true">2.</strong> Installation</a></li><li class="chapter-item expanded "><a href="projects.html"><strong aria-hidden="true">3.</strong> Projects</a></li><li class="chapter-item expanded "><a href="workspaces.html"><strong aria-hidden="true">4.</strong> Workspaces</a></li><li class="chapter-item expanded "><a href="machines.html"><strong aria-hidden="true">5.</strong> Machines</a></li><li class="chapter-item expanded "><a href="templates.html"><strong aria-hidden="true">6.</strong> Templates</a></li><li class="chapter-item expanded "><a href="tui.html"><strong aria-hidden="true">7.</strong> TUI</a></li><li class="chapter-item expanded "><a href="data.html"><strong aria-hidden="true">8.</strong> Data and backup</a></li><li class="chapter-item expanded "><a href="completions.html"><strong aria-hidden="true">9.</strong> Shell completions</a></li></ol>';
         // Set the current, active page, and reveal it if it's hidden
-        let current_page = document.location.href.toString().split("#")[0].split("?")[0];
+        let current_page = document.location.href.toString();
         if (current_page.endsWith("/")) {
             current_page += "index.html";
         }
