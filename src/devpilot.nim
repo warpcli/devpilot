@@ -1,9 +1,9 @@
-import std/[net, os, osproc, sequtils, streams, strutils, times]
+import std/[net, os, osproc, sequtils, streams, strutils, terminal, times]
 
 import devpilot_storage
 
 const
-  Version = "0.1.10"
+  Version = "0.2.0"
   About = "ultimate tool for managing development workflows"
 
 type
@@ -85,6 +85,23 @@ proc noneIfEmpty(value: string): string =
 
 proc unknownIfEmpty(value: string): string =
   if value.len == 0: "unknown" else: value
+
+proc colorHelp(): bool =
+  if getEnv("FORCE_COLOR").len > 0:
+    return true
+  if getEnv("NO_COLOR").len > 0 or getEnv("TERM") == "dumb":
+    return false
+  isatty(stdout)
+
+proc paint(value, code: string): string =
+  if colorHelp(): "\e[" & code & "m" & value & "\e[0m" else: value
+
+proc helpLine(name, alias, description, code: string): string =
+  let label =
+    if alias.len > 0: name & " [" & alias & "]"
+    else: name
+  "  " & paint(label & repeat(" ", max(1, 18 - label.len)), code) &
+      paint(description, "37")
 
 proc tomlEscape(value: string): string =
   value
@@ -778,25 +795,32 @@ proc loadDashboardData*(): DashboardData =
   )
 
 proc showHelp() =
-  echo """
-Usage:  dp <COMMAND>
-
-Commands:
-  workspace  [w]    Workspace related commands
-  project    [p]    Project and code creation
-  machine    [m]    Add or edit hostnames and ssh
-  template   [t]    Project template management
-  backup     [bk]   Backup and restore devpilot data
-  export           Export all devpilot data
-  import           Import exported devpilot data
-  completions      Generate shell completions
-  tui         [ui]   Full-screen terminal dashboard
-
-Options:
-      --about       About the tool
-  -h, --help        Print help information
-  -V, --version     Print version information
-"""
+  echo paint("devpilot", "1;35") & paint(" — development workflow dashboard", "2")
+  echo ""
+  echo paint("Usage:", "1;36") & "  " & paint("dp", "1;32") & " " &
+      paint("<COMMAND>", "33")
+  echo ""
+  echo paint("Main commands:", "1;36")
+  echo helpLine("workspace", "w", "Workspace related commands", "1;32")
+  echo helpLine("project", "p", "Project and code creation", "1;32")
+  echo helpLine("machine", "m", "Add or edit hostnames and ssh", "1;32")
+  echo helpLine("template", "t", "Project template management", "1;32")
+  echo ""
+  echo paint("Other commands:", "1;36")
+  echo helpLine("data", "", "Backup, restore, export, and import devpilot data",
+      "1;34")
+  echo helpLine("completions", "", "Generate shell completions", "1;34")
+  echo helpLine("tui", "ui", "Full-screen terminal dashboard", "1;34")
+  echo ""
+  echo paint("Options:", "1;36")
+  echo "  " & paint("--about", "33") & repeat(" ", 13) & "About the tool"
+  echo "  " & paint("-h, --help", "33") & repeat(" ", 9) &
+      "Print help information"
+  echo "  " & paint("-V, --version", "33") & repeat(" ", 6) &
+      "Print version information"
+  echo ""
+  echo paint("Tip:", "1;35") & " run " & paint("dp", "1;32") &
+      " with no arguments to open the TUI."
 
 proc showProjectHelp() =
   echo """
@@ -870,11 +894,22 @@ Commands:
 
 proc showBackupHelp() =
   echo """
-Usage: dp backup <COMMAND>
+Usage: dp data backup <COMMAND>
 
 Commands:
   create [--path PATH]
   restore PATH [--force]
+"""
+
+proc showDataHelp() =
+  echo """
+Usage: dp data <COMMAND>
+
+Commands:
+  backup create [--path PATH]
+  backup restore PATH [--force]
+  export [--format toml|json] [--path PATH]
+  import PATH [--merge|--force]
 """
 
 proc handleProject(argsIn: seq[string]) =
@@ -1854,7 +1889,7 @@ proc handleTemplate(argsIn: seq[string]) =
   else:
     die("Unknown template command: " & command, 2)
 
-proc handleBackup(argsIn: seq[string]) =
+proc handleDataBackup(argsIn: seq[string]) =
   var args = argsIn
   if args.len == 0 or popFlag(args, ["-h", "--help"]):
     showBackupHelp()
@@ -1867,7 +1902,7 @@ proc handleBackup(argsIn: seq[string]) =
     let destination = popValue(args, ["-p", "--path"])
     rejectUnknownOptions(args)
     if args.len > 0:
-      die("Usage: dp backup create [--path PATH]", 2)
+      die("Usage: dp data backup create [--path PATH]", 2)
     try:
       let backupPath = createBackup(destination)
       echo "Backup created: " & backupPath
@@ -1876,7 +1911,7 @@ proc handleBackup(argsIn: seq[string]) =
   of "restore":
     let force = popFlag(args, ["--force"])
     rejectUnknownOptions(args)
-    requireArgs(args, 1, "dp backup restore PATH [--force]")
+    requireArgs(args, 1, "dp data backup restore PATH [--force]")
     try:
       restoreBackup(args[0], force)
       echo "Backup restored from: " & args[0]
@@ -2215,13 +2250,13 @@ proc allDataJson(): string =
       arrayJson(machines, machineJson) & ", \"templates\": " &
       arrayJson(templates, templateJson) & "}"
 
-proc handleExport(argsIn: seq[string]) =
+proc handleDataExport(argsIn: seq[string]) =
   var args = argsIn
   let format = popValue(args, ["--format"], "toml")
   let destination = popValue(args, ["-p", "--path"])
   rejectUnknownOptions(args)
   if args.len > 0:
-    die("Usage: dp export [--format toml|json] [--path PATH]", 2)
+    die("Usage: dp data export [--format toml|json] [--path PATH]", 2)
   case format
   of "toml":
     try:
@@ -2268,12 +2303,12 @@ proc mergeImport(path: string) =
       templates.add(item)
   writeTemplates(ensureTemplatesFile(), templates)
 
-proc handleImport(argsIn: seq[string]) =
+proc handleDataImport(argsIn: seq[string]) =
   var args = argsIn
   let force = popFlag(args, ["--force"])
   let merge = popFlag(args, ["--merge"])
   rejectUnknownOptions(args)
-  requireArgs(args, 1, "dp import PATH [--merge|--force]")
+  requireArgs(args, 1, "dp data import PATH [--merge|--force]")
   if force and merge:
     die("--force and --merge cannot be used together", 2)
   try:
@@ -2286,11 +2321,29 @@ proc handleImport(argsIn: seq[string]) =
   except CatchableError as e:
     die(e.msg)
 
+proc handleData(argsIn: seq[string]) =
+  var args = argsIn
+  if args.len == 0 or popFlag(args, ["-h", "--help"]):
+    showDataHelp()
+    return
+
+  let command = args[0]
+  args.delete(0)
+  case command
+  of "backup", "bk", "backups":
+    handleDataBackup(args)
+  of "export":
+    handleDataExport(args)
+  of "import":
+    handleDataImport(args)
+  else:
+    die("Unknown data command: " & command, 2)
+
 proc handleCompletions(argsIn: seq[string]) =
   var args = argsIn
   rejectUnknownOptions(args)
   requireArgs(args, 1, "dp completions bash|zsh|fish")
-  let commands = "project workspace machine template backup export import completions tui help"
+  let commands = "project workspace machine template data completions tui help"
   case args[0]
   of "bash":
     echo "complete -W '" & commands & "' dp"
@@ -2307,16 +2360,18 @@ proc commandReferenceMarkdown(): string =
   """
 # devpilot command reference
 
-## Commands
+## Main commands
 
 - `dp project ...` — manage projects, discovery, import, JSON listing.
 - `dp workspace ...` — manage workspaces and run/status/open/env actions.
 - `dp machine ...` — manage SSH hosts, SSH config, health checks.
 - `dp template ...` — manage and safely apply project templates.
-- `dp backup ...` — create and restore data backups.
-- `dp export ...` / `dp import ...` — move devpilot data between machines.
+
+## Other commands
+
+- `dp data ...` — backup, restore, export, and import devpilot data.
 - `dp completions SHELL` — generate bash, zsh, or fish completions.
-- `dp tui` — open the terminal dashboard.
+- `dp tui` — open the terminal dashboard. Running `dp` with no arguments also opens it.
 """
 
 proc handleHelpCommand(argsIn: seq[string]) =
@@ -2362,12 +2417,8 @@ proc main*() =
     handleMachine(args)
   of "template", "t", "templates", "temp":
     handleTemplate(args)
-  of "backup", "bk", "backups":
-    handleBackup(args)
-  of "export":
-    handleExport(args)
-  of "import":
-    handleImport(args)
+  of "data", "d":
+    handleData(args)
   of "completions", "completion":
     handleCompletions(args)
   else:

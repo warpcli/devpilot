@@ -8,6 +8,10 @@ let envPrefix = freshEnv("cli")
 let dp = dp(envPrefix)
 
 doAssert checked(dp & "--version").strip() == "0.1.10"
+let help = checked(dp & "--help")
+doAssert help.contains("Main commands:")
+doAssert help.contains("Other commands:")
+doAssert help.contains("data")
 let tuiSnapshot = checked(dp & "tui --snapshot")
 doAssert tuiSnapshot.contains("devpilot tui")
 doAssert tuiSnapshot.contains("Projects:")

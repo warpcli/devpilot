@@ -73,7 +73,7 @@ dp template add basic --description "Basic app" --path ./template --language go
 dp template apply basic /tmp/my-app --name my_app --dry-run
 dp machine add lab 127.0.0.1:22:local --username "$USER"
 dp machine ssh-config lab
-dp backup create --path ./devpilot-backup
+dp data backup create --path ./devpilot-backup
 dp tui
 ```
 
@@ -84,6 +84,8 @@ The full-screen TUI uses [`illwill`](https://github.com/johnnovak/illwill) as a 
 ```sh
 dp tui
 ```
+
+Running `dp` with no arguments opens the TUI.
 
 Keys: `Left`/`Right` or `h`/`l` switch sections, `Up`/`Down` or `j`/`k` move the selection, `r` reloads data, and `q`/`Esc` quits.
 

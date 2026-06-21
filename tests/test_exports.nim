@@ -31,27 +31,28 @@ doAssert machinesJson[0]["hosts"][0]["ip"].getStr() == "127.0.0.1"
 let templatesJson = parseJson(checked(dp & "template list --json"))
 doAssert templatesJson[0]["name"].getStr() == "base"
 
-let allJson = parseJson(checked(dp & "export --format json"))
+let allJson = parseJson(checked(dp & "data export --format json"))
 doAssert allJson["projects"][0]["name"].getStr() == "demo"
 doAssert allJson["workspaces"][0]["name"].getStr() == "lab"
 
-discard checked(dp & "export --format toml --path " & quoteShell(exportPath))
+discard checked(dp & "data export --format toml --path " & quoteShell(exportPath))
 doAssert fileExists(exportPath / "manifest.toml")
 
-let refused = run(dp & "import " & quoteShell(exportPath))
+let refused = run(dp & "data import " & quoteShell(exportPath))
 doAssert refused.code != 0
 doAssert refused.output.contains("Refusing to overwrite")
 
 let importEnv = freshEnv("exports-import")
 let dpImport = dp(importEnv)
-discard checked(dpImport & "import " & quoteShell(exportPath))
+discard checked(dpImport & "data import " & quoteShell(exportPath))
 let importedProject = checked(dpImport & "project info demo")
 doAssert importedProject.contains("Project: demo")
 
-discard checked(dpImport & "import " & quoteShell(exportPath) & " --merge")
+discard checked(dpImport & "data import " & quoteShell(exportPath) & " --merge")
 
 let completions = checked(dp & "completions bash")
 doAssert completions.contains("project workspace machine")
+doAssert completions.contains("data")
 
 let markdown = checked(dp & "help --markdown")
 doAssert markdown.contains("devpilot command reference")
