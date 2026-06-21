@@ -4,10 +4,19 @@ import test_support
 
 compileBinary()
 
+proc packageVersion(): string =
+  for line in readFile("devpilot.nimble").splitLines:
+    let value = line.strip()
+    if value.startsWith("version"):
+      let parts = value.split('"')
+      if parts.len >= 3:
+        return parts[1]
+  raise newException(ValueError, "could not read package version")
+
 let envPrefix = freshEnv("cli")
 let dp = dp(envPrefix)
 
-doAssert checked(dp & "--version").strip() == "0.1.10"
+doAssert checked(dp & "--version").strip() == packageVersion()
 let help = checked(dp & "--help")
 doAssert help.contains("Main commands:")
 doAssert help.contains("Other commands:")

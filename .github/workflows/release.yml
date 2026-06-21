@@ -3,11 +3,21 @@ name: release
 on:
   release:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and upload artifacts for
+        required: true
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
   release:
     name: release ${{ matrix.artifact }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -16,12 +26,14 @@ jobs:
             artifact: dp-linux-amd64
           - os: ubuntu-24.04-arm
             artifact: dp-linux-arm64
-          - os: macos-13
+          - os: macos-15-intel
             artifact: dp-macos-amd64
           - os: macos-14
             artifact: dp-macos-arm64
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: "2.2.4"
@@ -35,7 +47,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-nim-
       - name: Install dependencies
-        run: nimble install -y --depsOnly
+        run: make tidy
       - name: Build release binary
         run: make build
       - name: Package
@@ -43,4 +55,7 @@ jobs:
       - name: Upload artifact
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
           files: ${{ matrix.artifact }}.tar.gz
+          fail_on_unmatched_files: true
+          overwrite_files: true

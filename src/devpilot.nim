@@ -3,7 +3,7 @@ import std/[net, os, osproc, sequtils, streams, strutils, terminal, times]
 import devpilot_storage
 
 const
-  Version = "0.2.0"
+  Version = "0.2.1"
   About = "ultimate tool for managing development workflows"
 
 type
