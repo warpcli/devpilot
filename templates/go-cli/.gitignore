@@ -1,0 +1,9 @@
+*.exe
+*.test
+*.out
+/{{kebab_name}}
+/coverage.out
+/dist
+/result
+/.direnv
+

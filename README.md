@@ -71,6 +71,8 @@ dp workspace status lab
 dp workspace run lab -- git status --short
 dp template add basic --description "Basic app" --path ./template --language go
 dp template apply basic /tmp/my-app --name my_app --dry-run
+dp template builtins install
+dp template apply nim-cli /tmp/my-nim-tool --name my_nim_tool
 dp machine add lab 127.0.0.1:22:local --username "$USER"
 dp machine ssh-config lab
 dp data backup create --path ./devpilot-backup

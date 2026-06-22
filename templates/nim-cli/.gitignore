@@ -1,0 +1,9 @@
+/target
+/.direnv
+/.devbox
+/{{kebab_name}}
+/bin
+/nimcache
+/coverage.out
+/result
+

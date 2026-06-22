@@ -66,6 +66,27 @@ discard checked(dp & "template tag remove base tui")
 let untaggedTemplate = checked(dp & "template info base")
 doAssert untaggedTemplate.contains("Tags: None")
 
+let builtins = checked(dp & "template builtins --raw")
+doAssert builtins.contains("go-cli\tgo\t")
+doAssert builtins.contains("zig-cli\tzig\t")
+doAssert builtins.contains("nim-cli\tnim\t")
+discard checked(dp & "template builtins install")
+let builtinRegistry = checked(dp & "template list --raw")
+doAssert builtinRegistry.contains("go-cli\tgo\t")
+doAssert builtinRegistry.contains("zig-cli\tzig\t")
+doAssert builtinRegistry.contains("nim-cli\tnim\t")
+
+let builtinTarget = "/tmp/devpilot-templates-builtin-nim"
+removeDir(builtinTarget)
+discard checked(dp & "template apply nim-cli " & quoteShell(builtinTarget) &
+    " --name sample_app")
+doAssert fileExists(builtinTarget / "sample_app.nimble")
+doAssert fileExists(builtinTarget / "src" / "sample_app.nim")
+doAssert readFile(builtinTarget / "sample_app.nimble").contains(
+    "bin           = @[\"sample-app\"]")
+doAssert readFile(builtinTarget / "src" / "sample_app.nim").contains(
+    "sample_app")
+
 discard checked(dp & "template rename base renamed")
 let renamedTemplate = checked(dp & "template info renamed")
 doAssert renamedTemplate.contains("Template: renamed")

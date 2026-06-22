@@ -54,6 +54,14 @@ type
     createdAt: string
     updatedAt: string
 
+  BuiltinTemplate = object
+    name: string
+    description: string
+    dir: string
+    language: string
+    framework: string
+    tags: string
+
   DashboardSection* = object
     title*: string
     empty*: string
@@ -63,6 +71,33 @@ type
   DashboardData* = object
     dataDir*: string
     sections*: seq[DashboardSection]
+
+const BuiltinTemplates: array[3, BuiltinTemplate] = [
+  BuiltinTemplate(
+    name: "go-cli",
+    description: "Go CLI app with Makefile, flake.nix, tests, and release hooks",
+    dir: "go-cli",
+    language: "go",
+    framework: "cli",
+    tags: "builtin,go,cli"
+  ),
+  BuiltinTemplate(
+    name: "zig-cli",
+    description: "Zig CLI app with build.zig, Makefile, flake.nix, and release hooks",
+    dir: "zig-cli",
+    language: "zig",
+    framework: "cli",
+    tags: "builtin,zig,cli"
+  ),
+  BuiltinTemplate(
+    name: "nim-cli",
+    description: "Nim CLI app with nimble, Makefile, flake.nix, tests, and release hooks",
+    dir: "nim-cli",
+    language: "nim",
+    framework: "cli",
+    tags: "builtin,nim,cli"
+  )
+]
 
 proc die(message: string; code = 1) =
   stderr.writeLine(message)
@@ -729,6 +764,114 @@ proc ensureTemplatesFile(): string =
   result = configPath("templates.toml")
   ensureFile(result, schemaHeader() & "templates = []\n")
 
+proc builtinTemplateTags(tmpl: BuiltinTemplate): seq[string] =
+  result = @[]
+  for tag in tmpl.tags.split(","):
+    let cleaned = tag.strip()
+    if cleaned.len > 0:
+      result.add(cleaned)
+
+proc builtinTemplatesRoot(): string =
+  let fromEnv = getEnv("DEVPILOT_TEMPLATE_DIR")
+  if fromEnv.len > 0 and dirExists(fromEnv):
+    return fromEnv
+
+  let appDir = parentDir(getAppFilename())
+  let candidates = @[
+    getCurrentDir() / "templates",
+    appDir / "templates",
+    appDir / ".." / "share" / "devpilot" / "templates"
+  ]
+  for candidate in candidates:
+    if dirExists(candidate):
+      return candidate
+  ""
+
+proc builtinTemplatePath(root: string; tmpl: BuiltinTemplate): string =
+  root / tmpl.dir
+
+proc printBuiltinTemplates(root: string; raw, asJson: bool) =
+  if asJson:
+    echo "["
+    for i, tmpl in BuiltinTemplates:
+      let path = if root.len > 0: builtinTemplatePath(root, tmpl) else: ""
+      let suffix = if i == BuiltinTemplates.high: "" else: ","
+      echo "  {\"name\": " & jsonString(tmpl.name) &
+          ", \"description\": " & jsonString(tmpl.description) &
+          ", \"path\": " & jsonString(path) &
+          ", \"language\": " & jsonString(tmpl.language) &
+          ", \"framework\": " & jsonString(tmpl.framework) &
+          ", \"available\": " & (if path.len > 0 and dirExists(
+              path): "true" else: "false") &
+          "}" & suffix
+    echo "]"
+  elif raw:
+    for tmpl in BuiltinTemplates:
+      let path = if root.len > 0: builtinTemplatePath(root, tmpl) else: ""
+      echo tmpl.name & "\t" & tmpl.language & "\t" & path
+  else:
+    echo table(
+      @["Name", "Description", "Language", "Path", "Status"],
+      BuiltinTemplates.mapIt(@[
+        it.name,
+        it.description,
+        it.language,
+        if root.len > 0: builtinTemplatePath(root, it) else: "None",
+        if root.len > 0 and dirExists(builtinTemplatePath(root,
+            it)): "ready" else: "missing"
+      ])
+    )
+
+proc installBuiltinTemplates(path: string; templates: var seq[Template];
+    force: bool) =
+  let root = builtinTemplatesRoot()
+  if root.len == 0:
+    die("Bundled templates not found. Set DEVPILOT_TEMPLATE_DIR or install templates with make install", 2)
+
+  var added = 0
+  var updated = 0
+  var skipped = 0
+  for builtin in BuiltinTemplates:
+    let templatePath = builtinTemplatePath(root, builtin)
+    if not dirExists(templatePath):
+      die("Bundled template path '" & templatePath & "' does not exist", 2)
+
+    var found = -1
+    for i, tmpl in templates:
+      if tmpl.name == builtin.name:
+        found = i
+        break
+
+    let stamp = nowStamp()
+    let record = Template(
+      name: builtin.name,
+      description: builtin.description,
+      path: templatePath,
+      language: builtin.language,
+      framework: builtin.framework,
+      tags: builtinTemplateTags(builtin),
+      createdAt: stamp,
+      updatedAt: stamp
+    )
+    if found >= 0:
+      if force:
+        templates[found].description = record.description
+        templates[found].path = record.path
+        templates[found].language = record.language
+        templates[found].framework = record.framework
+        templates[found].tags = record.tags
+        templates[found].updatedAt = stamp
+        inc updated
+      else:
+        inc skipped
+    else:
+      templates.add(record)
+      inc added
+
+  writeTemplates(path, templates)
+  echo "Bundled templates installed: " & $added & " added, " & $updated &
+      " updated, " & $skipped & " skipped"
+
 proc loadDashboardData*(): DashboardData =
   let projectPath = ensureProjectsFile()
   let workspacePath = ensureWorkspacesFile()
@@ -869,6 +1012,7 @@ Commands:
   tag add NAME TAG
   tag remove NAME TAG
   apply TEMPLATE TARGET_PATH [--name PROJECT_NAME] [--dry-run] [--force|--skip-existing] [--allow-symlinks]
+  builtins [list|install] [--force]
   remove NAME
 """
 
@@ -1545,6 +1689,29 @@ proc placeholderPairs(projectName: string): seq[(string, string)] =
     ("{{snake_name}}", snakeLower)
   ]
 
+proc inferProjectName(targetPath: string): string =
+  var cleaned = targetPath
+  while cleaned.len > 1 and (cleaned[^1] == '/' or cleaned[^1] == '\\'):
+    cleaned.setLen(cleaned.len - 1)
+  let tail = splitPath(cleaned).tail
+  if tail.len > 0:
+    tail
+  else:
+    "project"
+
+proc effectiveProjectName(projectName, targetPath: string): string =
+  if projectName.len > 0:
+    projectName
+  else:
+    inferProjectName(targetPath)
+
+proc renderTemplateRel(rel, projectName: string): string =
+  result = rel
+  if projectName.len == 0:
+    return
+  for pair in placeholderPairs(projectName):
+    result = result.replace(pair[0], pair[1])
+
 proc replacementStatus(path, rel, projectName: string): tuple[needed: bool;
     skipped: string] =
   if projectName.len == 0:
@@ -1585,11 +1752,12 @@ proc addSymlinkToPlan(plan: var TemplateApplyPlan; targetRoot, rel: string;
 proc collectTemplateDir(plan: var TemplateApplyPlan; srcRoot, targetRoot,
     relRoot, projectName: string; allowSymlinks: bool) =
   for kind, path in walkDir(srcRoot):
-    let rel = childRel(relRoot, splitPath(path).tail)
+    let rawRel = childRel(relRoot, splitPath(path).tail)
+    let rel = renderTemplateRel(rawRel, projectName)
     case kind
     of pcDir:
       plan.createDirs.add(rel)
-      collectTemplateDir(plan, path, targetRoot, rel, projectName, allowSymlinks)
+      collectTemplateDir(plan, path, targetRoot, rawRel, projectName, allowSymlinks)
     of pcFile:
       addFileToPlan(plan, path, targetRoot, rel, projectName)
     of pcLinkToFile, pcLinkToDir:
@@ -1600,7 +1768,8 @@ proc buildTemplatePlan(srcPath, targetRoot, projectName: string;
   if dirExists(srcPath):
     collectTemplateDir(result, srcPath, targetRoot, "", projectName, allowSymlinks)
   elif fileExists(srcPath):
-    addFileToPlan(result, srcPath, targetRoot, splitPath(srcPath).tail, projectName)
+    addFileToPlan(result, srcPath, targetRoot,
+        renderTemplateRel(splitPath(srcPath).tail, projectName), projectName)
   else:
     die("Template path '" & srcPath & "' does not exist")
 
@@ -1666,14 +1835,15 @@ proc copyTemplateSymlink(srcPath, targetPath, rel: string; force,
 
 proc applyTemplateDir(srcRoot, targetRoot, relRoot, projectName: string; force,
     skipExisting, allowSymlinks: bool; skippedReplacements: var seq[string]) =
-  createDir(targetRoot / relRoot)
+  createDir(targetRoot / renderTemplateRel(relRoot, projectName))
   for kind, path in walkDir(srcRoot):
-    let rel = childRel(relRoot, splitPath(path).tail)
+    let rawRel = childRel(relRoot, splitPath(path).tail)
+    let rel = renderTemplateRel(rawRel, projectName)
     let target = targetRoot / rel
     case kind
     of pcDir:
-      applyTemplateDir(path, targetRoot, rel, projectName, force, skipExisting,
-          allowSymlinks, skippedReplacements)
+      applyTemplateDir(path, targetRoot, rawRel, projectName, force,
+          skipExisting, allowSymlinks, skippedReplacements)
     of pcFile:
       copyTemplateFile(path, target, rel, projectName, force, skipExisting,
           skippedReplacements)
@@ -1688,8 +1858,9 @@ proc applyTemplate(srcPath, targetRoot, projectName: string; force,
     applyTemplateDir(srcPath, targetRoot, "", projectName, force, skipExisting,
         allowSymlinks, result)
   elif fileExists(srcPath):
-    copyTemplateFile(srcPath, targetRoot / splitPath(srcPath).tail,
-        splitPath(srcPath).tail, projectName, force, skipExisting, result)
+    let rel = renderTemplateRel(splitPath(srcPath).tail, projectName)
+    copyTemplateFile(srcPath, targetRoot / rel, rel, projectName, force,
+        skipExisting, result)
   else:
     die("Template path '" & srcPath & "' does not exist")
 
@@ -1704,6 +1875,26 @@ proc handleTemplate(argsIn: seq[string]) =
   var templates = parseTemplates(path)
 
   case command
+  of "builtins", "builtin", "defaults":
+    let force = popFlag(args, ["--force"])
+    let raw = popFlag(args, ["-r", "--raw"])
+    let asJson = popFlag(args, ["--json"])
+    let action =
+      if args.len == 0: "list"
+      else:
+        let value = args[0]
+        args.delete(0)
+        value
+    rejectUnknownOptions(args)
+    case action
+    of "list", "ls":
+      printBuiltinTemplates(builtinTemplatesRoot(), raw, asJson)
+    of "install", "add", "seed":
+      if raw or asJson:
+        die("--raw and --json are only valid with dp template builtins list", 2)
+      installBuiltinTemplates(path, templates, force)
+    else:
+      die("Unknown builtin template action: " & action, 2)
   of "add", "a", "new":
     let description = popValue(args, ["-d", "--description", "--desc"])
     let templatePath = popValue(args, ["-p", "--path"])
@@ -1856,7 +2047,8 @@ proc handleTemplate(argsIn: seq[string]) =
     if not hasFound:
       die("Template '" & templateName & "' not found")
 
-    let plan = buildTemplatePlan(found.path, targetPath, projectName, allowSymlinks)
+    let renderedName = effectiveProjectName(projectName, targetPath)
+    let plan = buildTemplatePlan(found.path, targetPath, renderedName, allowSymlinks)
     if dryRun:
       printTemplatePlan(templateName, targetPath, plan)
       if plan.rejectedSymlinks.len > 0:
@@ -1871,8 +2063,8 @@ proc handleTemplate(argsIn: seq[string]) =
       printTemplatePlan(templateName, targetPath, plan)
       die("Template target has conflicts; use --force or --skip-existing")
 
-    let skippedReplacements = applyTemplate(found.path, targetPath, projectName,
-        force, skipExisting, allowSymlinks)
+    let skippedReplacements = applyTemplate(found.path, targetPath,
+        renderedName, force, skipExisting, allowSymlinks)
     printList("Skipped placeholder replacements", skippedReplacements)
     echo "Template '" & templateName & "' successfully applied to '" &
         targetPath & "'"

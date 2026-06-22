@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
-PROJECT_NAME := dp
-NIMBLE_FILE := devpilot.nimble
+PROJECT_NAME := {{kebab_name}}
+NIMBLE_FILE := {{snake_name}}.nimble
 PROJECT_VERSION := $(shell sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' $(NIMBLE_FILE) | head -1)
 ifeq ($(PROJECT_VERSION),)
     $(error Error: could not determine project version from $(NIMBLE_FILE))
@@ -23,10 +23,10 @@ $(info ------------------------------------------)
 $(info Project: $(PROJECT_NAME) v$(PROJECT_VERSION))
 $(info ------------------------------------------)
 
-.PHONY: build b compile c run r install uninstall test t test-all cover check vet fmt fmt-check tidy clean changelog verify release mdbook help h
+.PHONY: build b compile c run r install uninstall test t test-all cover check vet fmt fmt-check tidy clean changelog verify release help h
 
 build:
-	@$(NIM) c $(BUILD_FLAGS) --out:$(PROJECT_NAME) src/dp.nim
+	@$(NIM) c $(BUILD_FLAGS) --out:$(PROJECT_NAME) src/{{snake_name}}.nim
 
 b: build
 
@@ -45,16 +45,9 @@ install: build
 	@install -d $(PREFIX)/bin
 	@install -m 0755 $(PROJECT_NAME) $(PREFIX)/bin/$(PROJECT_NAME)
 	@echo "installed -> $(PREFIX)/bin/$(PROJECT_NAME)"
-	@if [ -d templates ]; then \
-		rm -rf "$(PREFIX)/share/devpilot/templates"; \
-		install -d "$(PREFIX)/share/devpilot"; \
-		cp -R templates "$(PREFIX)/share/devpilot/templates"; \
-		echo "templates -> $(PREFIX)/share/devpilot/templates"; \
-	fi
 
 uninstall:
 	@rm -f $(PREFIX)/bin/$(PROJECT_NAME)
-	@rm -rf $(PREFIX)/share/devpilot/templates
 	@echo "removed -> $(PREFIX)/bin/$(PROJECT_NAME)"
 
 test:
@@ -64,15 +57,15 @@ t: test
 
 test-all:
 	@$(NIMBLE) test -y
-	@$(NIM) c -d:release --out:/tmp/devpilot-release-check src/dp.nim
-	@rm -f /tmp/devpilot-release-check
+	@$(NIM) c -d:release --out:/tmp/{{kebab_name}}-release-check src/{{snake_name}}.nim
+	@rm -f /tmp/{{kebab_name}}-release-check
 
 cover:
 	@echo "coverage is not configured for this Nim project yet; running tests instead"
 	@$(MAKE) test
 
 check:
-	@$(NIM) check src/dp.nim
+	@$(NIM) check src/{{snake_name}}.nim
 
 vet: check
 
@@ -83,7 +76,7 @@ fmt-check:
 	@set -e; \
 	needed=""; \
 	for f in $(NIM_FILES); do \
-		tmp="/tmp/devpilot-nimpretty-$$(basename "$$f").$$$$.nim"; \
+		tmp="/tmp/{{kebab_name}}-nimpretty-$$(basename "$$f").$$$$.nim"; \
 		cp "$$f" "$$tmp"; \
 		$(NIMPRETTY) "$$tmp" >/dev/null; \
 		if ! cmp -s "$$f" "$$tmp"; then needed="$$needed $$f"; fi; \
@@ -119,38 +112,12 @@ release:
 	fi
 	@git rel $(TYPE)
 
-mdbook:
-	@mdbook build book --dest-dir ../docs
-	@git add -A && git commit -m "docs: building website/mdbook"
-
 help:
 	@echo
 	@echo "Usage: make [target]"
 	@echo
-	@echo "Available targets:"
-	@echo "  build        Build the binary (./$(PROJECT_NAME))"
-	@echo "  compile      Clean and rebuild"
-	@echo "  run          Run locally (pass args with ARGS=...)"
-	@echo "  install      Install to \$$PREFIX/bin (default ~/.local/bin)"
-	@echo "  uninstall    Remove the installed binary"
-	@echo "  test         Run all tests"
-	@echo "  test-all     Run tests plus release compile check"
-	@echo "  cover        Run tests (coverage not configured yet)"
-	@echo "  check        Run Nim semantic checks"
-	@echo "  vet          Alias for check"
-	@echo "  fmt          Format Nim sources"
-	@echo "  fmt-check    Fail if Nim sources are unformatted"
-	@echo "  tidy         Install Nim dependencies"
-	@echo "  clean        Remove build artifacts"
-	@echo "  changelog    Regenerate CHANGELOG.md (git-cliff)"
-	@echo "  verify       Run the full local gate (fmt-check + check + test)"
-	@echo "  release      Release a new version (git-rel)"
-	@echo "  mdbook       Build the mdbook into ../docs"
-	@echo
-	@echo "Examples:"
-	@echo "  make run ARGS='project list'"
-	@echo "  make install PREFIX=/usr/local"
-	@echo "  make release TYPE=minor"
+	@echo "Available targets: build run install uninstall test check fmt fmt-check tidy clean verify release"
 	@echo
 
 h: help
+
