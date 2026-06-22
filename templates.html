@@ -159,15 +159,23 @@ explicit symlink handling.</p>
 dp template apply base /tmp/new-app --name new_app --dry-run
 dp template apply base /tmp/new-app --name new_app --skip-existing
 </code></pre>
-<p>Bundled starter templates are available for Go, Zig, and Nim CLIs:</p>
-<pre><code class="language-sh">dp template builtins list
-dp template builtins install
-dp template apply go-cli /tmp/my-go-tool --name my_go_tool
-dp template apply zig-cli /tmp/my-zig-tool --name my_zig_tool
-dp template apply nim-cli /tmp/my-nim-tool --name my_nim_tool
+<p>Bundled starter templates are available for Go, Zig, Nim, Rust, and C++:</p>
+<pre><code class="language-sh">dp init
+dp template builtins list
+dp template apply go /tmp/my-go-tool --name my_go_tool
+dp template apply zig /tmp/my-zig-tool --name my_zig_tool
+dp template apply nim /tmp/my-nim-tool --name my_nim_tool
+dp template apply rust /tmp/my-rust-lib --name my_rust_lib
+dp template apply cpp /tmp/my-cpp-lib --name my_cpp_lib
 </code></pre>
 <p>Template placeholders are replaced in both file contents and file names, so
 <code>{{snake_name}}.nimble</code> becomes <code>my_nim_tool.nimble</code>.</p>
+<p>The bundled templates are embedded in the <code>dp</code> binary. <code>dp init</code> writes them to
+<code>$XDG_DATA_HOME/devpilot/templates</code> and registers <code>go</code>, <code>zig</code>, <code>nim</code>, <code>rust</code>,
+and <code>cpp</code>.</p>
+<p>The embedded templates share one common base for files like <code>.envrc</code>,
+<code>flake.nix</code>, <code>README.md</code>, <code>.gitignore</code>, and <code>PROJECT</code>; each language directory
+only overlays its unique source, build, test, and workflow files.</p>
 
                     </main>
 
