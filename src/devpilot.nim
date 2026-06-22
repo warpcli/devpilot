@@ -1,5 +1,6 @@
 import std/[net, os, osproc, sequtils, streams, strutils, terminal, times]
 
+import devpilot_embedded_templates
 import devpilot_storage
 
 const
@@ -61,6 +62,7 @@ type
     language: string
     framework: string
     tags: string
+    nixPackages: string
 
   DashboardSection* = object
     title*: string
@@ -72,32 +74,81 @@ type
     dataDir*: string
     sections*: seq[DashboardSection]
 
-const BuiltinTemplates: array[3, BuiltinTemplate] = [
-  BuiltinTemplate(
-    name: "go-cli",
-    description: "Go CLI app with Makefile, flake.nix, tests, and release hooks",
-    dir: "go-cli",
-    language: "go",
-    framework: "cli",
-    tags: "builtin,go,cli"
-  ),
-  BuiltinTemplate(
-    name: "zig-cli",
-    description: "Zig CLI app with build.zig, Makefile, flake.nix, and release hooks",
-    dir: "zig-cli",
-    language: "zig",
-    framework: "cli",
-    tags: "builtin,zig,cli"
-  ),
-  BuiltinTemplate(
-    name: "nim-cli",
-    description: "Nim CLI app with nimble, Makefile, flake.nix, tests, and release hooks",
-    dir: "nim-cli",
-    language: "nim",
-    framework: "cli",
-    tags: "builtin,nim,cli"
-  )
-]
+const
+  GoNixPackages = "            pkgs.go\n" &
+      "            pkgs.gopls\n" &
+      "            pkgs.gotools\n" &
+      "            pkgs.go-tools\n" &
+      "            pkgs.delve\n" &
+      "            pkgs.golangci-lint\n" &
+      "            pkgs.goreleaser"
+
+  ZigNixPackages = "            pkgs.zig\n" &
+      "            pkgs.zls"
+
+  NimNixPackages = "            pkgs.nim\n" &
+      "            pkgs.nimble\n" &
+      "            pkgs.nimlsp\n" &
+      "            pkgs.nimlangserver"
+
+  RustNixPackages = "            pkgs.rustc\n" &
+      "            pkgs.cargo\n" &
+      "            pkgs.rustfmt\n" &
+      "            pkgs.clippy\n" &
+      "            pkgs.rust-analyzer"
+
+  CppNixPackages = "            pkgs.cmake\n" &
+      "            pkgs.gcc\n" &
+      "            pkgs.gdb\n" &
+      "            pkgs.clang-tools"
+
+  BuiltinTemplates: array[5, BuiltinTemplate] = [
+    BuiltinTemplate(
+      name: "go",
+      description: "Go CLI app with Makefile, flake.nix, tests, and release hooks",
+      dir: "go",
+      language: "go",
+      framework: "cli",
+      tags: "builtin,go,cli",
+      nixPackages: GoNixPackages
+    ),
+    BuiltinTemplate(
+      name: "zig",
+      description: "Zig CLI app with build.zig, Makefile, flake.nix, and release hooks",
+      dir: "zig",
+      language: "zig",
+      framework: "cli",
+      tags: "builtin,zig,cli",
+      nixPackages: ZigNixPackages
+    ),
+    BuiltinTemplate(
+      name: "nim",
+      description: "Nim CLI app with nimble, Makefile, flake.nix, tests, and release hooks",
+      dir: "nim",
+      language: "nim",
+      framework: "cli",
+      tags: "builtin,nim,cli",
+      nixPackages: NimNixPackages
+    ),
+    BuiltinTemplate(
+      name: "rust",
+      description: "Rust library starter with Cargo, Makefile, flake.nix, tests, and release hooks",
+      dir: "rust",
+      language: "rust",
+      framework: "library",
+      tags: "builtin,rust,library",
+      nixPackages: RustNixPackages
+    ),
+    BuiltinTemplate(
+      name: "cpp",
+      description: "C++ library starter with CMake, Makefile, flake.nix, tests, and release hooks",
+      dir: "cpp",
+      language: "cpp",
+      framework: "library",
+      tags: "builtin,cpp,library",
+      nixPackages: CppNixPackages
+    )
+  ]
 
 proc die(message: string; code = 1) =
   stderr.writeLine(message)
@@ -764,6 +815,37 @@ proc ensureTemplatesFile(): string =
   result = configPath("templates.toml")
   ensureFile(result, schemaHeader() & "templates = []\n")
 
+proc embeddedTemplatesRoot(): string =
+  dataRoot() / "templates"
+
+proc writeEmbeddedTemplateSources(root: string; force: bool): tuple[
+    written: int; skipped: int] =
+  for item in EmbeddedTemplateFiles:
+    let destination = root / item.group / item.path
+    if fileExists(destination) and not force:
+      inc result.skipped
+    else:
+      atomicWriteFile(destination, item.content)
+      inc result.written
+
+proc ensureEmbeddedTemplateSources(force = false): tuple[root: string;
+    written: int; skipped: int] =
+  result.root = embeddedTemplatesRoot()
+  let counts = writeEmbeddedTemplateSources(result.root, force)
+  result.written = counts.written
+  result.skipped = counts.skipped
+
+proc builtinLanguageTitle(tmpl: BuiltinTemplate): string =
+  if tmpl.language.len == 0:
+    return ""
+  tmpl.language[0].toUpperAscii() & tmpl.language.substr(1)
+
+proc renderBuiltinTemplate(content: string; tmpl: BuiltinTemplate): string =
+  content
+    .replace("{{builtin_language}}", tmpl.language)
+    .replace("{{builtin_language_title}}", builtinLanguageTitle(tmpl))
+    .replace("{{builtin_nix_packages}}", tmpl.nixPackages)
+
 proc builtinTemplateTags(tmpl: BuiltinTemplate): seq[string] =
   result = @[]
   for tag in tmpl.tags.split(","):
@@ -777,7 +859,9 @@ proc builtinTemplatesRoot(): string =
     return fromEnv
 
   let appDir = parentDir(getAppFilename())
+  let embeddedRoot = embeddedTemplatesRoot()
   let candidates = @[
+    embeddedRoot,
     getCurrentDir() / "templates",
     appDir / "templates",
     appDir / ".." / "share" / "devpilot" / "templates"
@@ -790,6 +874,44 @@ proc builtinTemplatesRoot(): string =
 proc builtinTemplatePath(root: string; tmpl: BuiltinTemplate): string =
   root / tmpl.dir
 
+proc builtinCommonPath(root: string): string =
+  root / "common"
+
+proc builtinTemplateAvailable(root: string; tmpl: BuiltinTemplate): bool =
+  root.len > 0 and dirExists(builtinCommonPath(root)) and dirExists(
+      builtinTemplatePath(root, tmpl))
+
+proc copyBuiltinTemplateDir(srcRoot, dstRoot, relRoot: string;
+    tmpl: BuiltinTemplate) =
+  for kind, path in walkDir(srcRoot):
+    let rel = if relRoot.len == 0: splitPath(path).tail else: relRoot /
+        splitPath(path).tail
+    let dstPath = dstRoot / rel
+    case kind
+    of pcDir:
+      createDir(dstPath)
+      copyBuiltinTemplateDir(path, dstRoot, rel, tmpl)
+    of pcFile:
+      createDir(parentDir(dstPath))
+      writeFile(dstPath, renderBuiltinTemplate(readFile(path), tmpl))
+    of pcLinkToFile, pcLinkToDir:
+      discard
+
+proc materializeBuiltinTemplate(root: string; tmpl: BuiltinTemplate): string =
+  let commonPath = builtinCommonPath(root)
+  let overlayPath = builtinTemplatePath(root, tmpl)
+  if not dirExists(commonPath):
+    die("Bundled template common path '" & commonPath & "' does not exist", 2)
+  if not dirExists(overlayPath):
+    die("Bundled template path '" & overlayPath & "' does not exist", 2)
+
+  result = dataRoot() / "builtin-templates" / tmpl.name
+  if dirExists(result):
+    removeDir(result)
+  createDir(result)
+  copyBuiltinTemplateDir(commonPath, result, "", tmpl)
+  copyBuiltinTemplateDir(overlayPath, result, "", tmpl)
+
 proc printBuiltinTemplates(root: string; raw, asJson: bool) =
   if asJson:
     echo "["
@@ -801,8 +923,8 @@ proc printBuiltinTemplates(root: string; raw, asJson: bool) =
           ", \"path\": " & jsonString(path) &
           ", \"language\": " & jsonString(tmpl.language) &
           ", \"framework\": " & jsonString(tmpl.framework) &
-          ", \"available\": " & (if path.len > 0 and dirExists(
-              path): "true" else: "false") &
+          ", \"available\": " & (if builtinTemplateAvailable(root,
+              tmpl): "true" else: "false") &
           "}" & suffix
     echo "]"
   elif raw:
@@ -817,24 +939,25 @@ proc printBuiltinTemplates(root: string; raw, asJson: bool) =
         it.description,
         it.language,
         if root.len > 0: builtinTemplatePath(root, it) else: "None",
-        if root.len > 0 and dirExists(builtinTemplatePath(root,
-            it)): "ready" else: "missing"
+        if builtinTemplateAvailable(root, it): "ready" else: "missing"
       ])
     )
 
 proc installBuiltinTemplates(path: string; templates: var seq[Template];
-    force: bool) =
-  let root = builtinTemplatesRoot()
+    force: bool; sourceRoot = "") =
+  if sourceRoot.len == 0 and getEnv("DEVPILOT_TEMPLATE_DIR").len == 0:
+    discard ensureEmbeddedTemplateSources(false)
+  let root = if sourceRoot.len > 0: sourceRoot else: builtinTemplatesRoot()
   if root.len == 0:
-    die("Bundled templates not found. Set DEVPILOT_TEMPLATE_DIR or install templates with make install", 2)
+    die("Bundled templates not found. Set DEVPILOT_TEMPLATE_DIR or run dp init", 2)
 
   var added = 0
   var updated = 0
   var skipped = 0
+  templates = templates.filterIt(not @["go-cli", "zig-cli", "nim-cli"].contains(
+      it.name))
   for builtin in BuiltinTemplates:
-    let templatePath = builtinTemplatePath(root, builtin)
-    if not dirExists(templatePath):
-      die("Bundled template path '" & templatePath & "' does not exist", 2)
+    let templatePath = materializeBuiltinTemplate(root, builtin)
 
     var found = -1
     for i, tmpl in templates:
@@ -950,6 +1073,8 @@ proc showHelp() =
   echo helpLine("template", "t", "Project template management", "1;32")
   echo ""
   echo paint("Other commands:", "1;36")
+  echo helpLine("init", "", "Initialize devpilot data and embedded templates",
+      "1;34")
   echo helpLine("data", "", "Backup, restore, export, and import devpilot data",
       "1;34")
   echo helpLine("completions", "", "Generate shell completions", "1;34")
@@ -2531,11 +2656,31 @@ proc handleData(argsIn: seq[string]) =
   else:
     die("Unknown data command: " & command, 2)
 
+proc handleInit(argsIn: seq[string]) =
+  var args = argsIn
+  let force = popFlag(args, ["--force"])
+  rejectUnknownOptions(args)
+  if args.len > 0:
+    die("Usage: dp init [--force]", 2)
+
+  discard ensureProjectsFile()
+  discard ensureWorkspacesFile()
+  discard ensureMachinesFile()
+  let templatesPath = ensureTemplatesFile()
+  let seeded = ensureEmbeddedTemplateSources(force)
+
+  var templates = parseTemplates(templatesPath)
+  installBuiltinTemplates(templatesPath, templates, force, seeded.root)
+
+  echo "Initialized devpilot data: " & dataRoot()
+  echo "Embedded template sources: " & seeded.root & " (" & $seeded.written &
+      " written, " & $seeded.skipped & " skipped)"
+
 proc handleCompletions(argsIn: seq[string]) =
   var args = argsIn
   rejectUnknownOptions(args)
   requireArgs(args, 1, "dp completions bash|zsh|fish")
-  let commands = "project workspace machine template data completions tui help"
+  let commands = "project workspace machine template init data completions tui help"
   case args[0]
   of "bash":
     echo "complete -W '" & commands & "' dp"
@@ -2561,6 +2706,7 @@ proc commandReferenceMarkdown(): string =
 
 ## Other commands
 
+- `dp init` — initialize local devpilot data and write embedded templates.
 - `dp data ...` — backup, restore, export, and import devpilot data.
 - `dp completions SHELL` — generate bash, zsh, or fish completions.
 - `dp tui` — open the terminal dashboard. Running `dp` with no arguments also opens it.
@@ -2609,6 +2755,8 @@ proc main*() =
     handleMachine(args)
   of "template", "t", "templates", "temp":
     handleTemplate(args)
+  of "init", "initialize":
+    handleInit(args)
   of "data", "d":
     handleData(args)
   of "completions", "completion":

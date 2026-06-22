@@ -63,6 +63,7 @@ After `make build`, the binary is available at:
 
 ```sh
 dp --help
+dp init
 dp project add my-app --path ~/code/my-app --language go --tags cli
 dp project list --json
 dp project discover ~/code --depth 2
@@ -71,8 +72,9 @@ dp workspace status lab
 dp workspace run lab -- git status --short
 dp template add basic --description "Basic app" --path ./template --language go
 dp template apply basic /tmp/my-app --name my_app --dry-run
-dp template builtins install
-dp template apply nim-cli /tmp/my-nim-tool --name my_nim_tool
+dp template apply nim /tmp/my-nim-tool --name my_nim_tool
+dp template apply rust /tmp/my-rust-lib --name my_rust_lib
+dp template apply cpp /tmp/my-cpp-lib --name my_cpp_lib
 dp machine add lab 127.0.0.1:22:local --username "$USER"
 dp machine ssh-config lab
 dp data backup create --path ./devpilot-backup

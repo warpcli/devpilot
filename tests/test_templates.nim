@@ -67,18 +67,22 @@ let untaggedTemplate = checked(dp & "template info base")
 doAssert untaggedTemplate.contains("Tags: None")
 
 let builtins = checked(dp & "template builtins --raw")
-doAssert builtins.contains("go-cli\tgo\t")
-doAssert builtins.contains("zig-cli\tzig\t")
-doAssert builtins.contains("nim-cli\tnim\t")
+doAssert builtins.contains("go\tgo\t")
+doAssert builtins.contains("zig\tzig\t")
+doAssert builtins.contains("nim\tnim\t")
+doAssert builtins.contains("rust\trust\t")
+doAssert builtins.contains("cpp\tcpp\t")
 discard checked(dp & "template builtins install")
 let builtinRegistry = checked(dp & "template list --raw")
-doAssert builtinRegistry.contains("go-cli\tgo\t")
-doAssert builtinRegistry.contains("zig-cli\tzig\t")
-doAssert builtinRegistry.contains("nim-cli\tnim\t")
+doAssert builtinRegistry.contains("go\tgo\t")
+doAssert builtinRegistry.contains("zig\tzig\t")
+doAssert builtinRegistry.contains("nim\tnim\t")
+doAssert builtinRegistry.contains("rust\trust\t")
+doAssert builtinRegistry.contains("cpp\tcpp\t")
 
 let builtinTarget = "/tmp/devpilot-templates-builtin-nim"
 removeDir(builtinTarget)
-discard checked(dp & "template apply nim-cli " & quoteShell(builtinTarget) &
+discard checked(dp & "template apply nim " & quoteShell(builtinTarget) &
     " --name sample_app")
 doAssert fileExists(builtinTarget / "sample_app.nimble")
 doAssert fileExists(builtinTarget / "src" / "sample_app.nim")
@@ -86,6 +90,58 @@ doAssert readFile(builtinTarget / "sample_app.nimble").contains(
     "bin           = @[\"sample-app\"]")
 doAssert readFile(builtinTarget / "src" / "sample_app.nim").contains(
     "sample_app")
+doAssert readFile(builtinTarget / "README.md").contains("Small Nim starter")
+doAssert readFile(builtinTarget / "flake.nix").contains("pkgs.nim")
+
+let rustTarget = "/tmp/devpilot-templates-builtin-rust"
+removeDir(rustTarget)
+discard checked(dp & "template apply rust " & quoteShell(rustTarget) &
+    " --name sample_app")
+doAssert fileExists(rustTarget / "Cargo.toml")
+doAssert fileExists(rustTarget / "src" / "lib.rs")
+doAssert fileExists(rustTarget / "examples" / "main.rs")
+doAssert readFile(rustTarget / "Cargo.toml").contains("name = \"sample-app\"")
+doAssert readFile(rustTarget / "examples" / "main.rs").contains(
+    "sample_app::name()")
+doAssert readFile(rustTarget / "flake.nix").contains("pkgs.cargo")
+
+let cppTarget = "/tmp/devpilot-templates-builtin-cpp"
+removeDir(cppTarget)
+discard checked(dp & "template apply cpp " & quoteShell(cppTarget) &
+    " --name sample_app")
+doAssert fileExists(cppTarget / "CMakeLists.txt")
+doAssert fileExists(cppTarget / "include" / "sample_app" / "sample_app.hpp")
+doAssert fileExists(cppTarget / "src" / "sample_app" / "sample_app.cpp")
+doAssert fileExists(cppTarget / "test" / "basic_test.cpp")
+doAssert readFile(cppTarget / "CMakeLists.txt").contains(
+    "src/sample_app/sample_app.cpp")
+doAssert readFile(cppTarget / "flake.nix").contains("pkgs.cmake")
+
+let initDataHome = "/tmp/devpilot-init-data"
+let initHome = "/tmp/devpilot-init-home"
+removeDir(initDataHome)
+removeDir(initHome)
+createDir(initDataHome)
+createDir(initHome)
+let initPrefix = "XDG_DATA_HOME=" & quoteShell(initDataHome) & " HOME=" &
+    quoteShell(initHome) & " "
+let initOutput = checked(initPrefix & quoteShell(Binary) & " init")
+doAssert initOutput.contains("Initialized devpilot data")
+doAssert fileExists(initDataHome / "devpilot" / "templates" / "common" /
+    "flake.nix")
+doAssert fileExists(initDataHome / "devpilot" / "templates" / "nim" /
+    "{{snake_name}}.nimble")
+doAssert fileExists(initDataHome / "devpilot" / "templates" / "rust" /
+    "Cargo.toml")
+doAssert fileExists(initDataHome / "devpilot" / "templates" / "cpp" /
+    "CMakeLists.txt")
+let initializedTemplates = checked(initPrefix & quoteShell(Binary) &
+    " template list --raw")
+doAssert initializedTemplates.contains("go\tgo\t")
+doAssert initializedTemplates.contains("zig\tzig\t")
+doAssert initializedTemplates.contains("nim\tnim\t")
+doAssert initializedTemplates.contains("rust\trust\t")
+doAssert initializedTemplates.contains("cpp\tcpp\t")
 
 discard checked(dp & "template rename base renamed")
 let renamedTemplate = checked(dp & "template info renamed")

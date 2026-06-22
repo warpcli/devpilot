@@ -1,5 +1,5 @@
 {
-  description = "{{PROJECT_NAME}} Nim development shell";
+  description = "{{PROJECT_NAME}} {{builtin_language_title}} development shell";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs?rev=4c1018dae018162ec878d42fec712642d214fdfa";
@@ -12,8 +12,18 @@
     flake-utils.lib.eachDefaultSystem (
       system:
       let
+        overlays = [
+          (final: prev: {
+            xorg = prev.xorg // {
+              libX11 = final.libx11;
+              libxcb = final.libxcb;
+              libxshmfence = final.libxshmfence;
+            };
+          })
+        ];
+
         pkgs = import nixpkgs {
-          inherit system;
+          inherit system overlays;
           config = {
             allowUnfree = true;
             nvidia.acceptLicense = true;
@@ -63,10 +73,7 @@
       {
         devShells.default = pkgs.mkShell {
           packages = [
-            pkgs.nim
-            pkgs.nimble
-            pkgs.nimlsp
-            pkgs.nimlangserver
+{{builtin_nix_packages}}
             pkgs.git-cliff
             pkgs.clang
             pkgs.mold
@@ -88,4 +95,3 @@
       }
     );
 }
-

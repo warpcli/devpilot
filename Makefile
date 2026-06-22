@@ -45,16 +45,9 @@ install: build
 	@install -d $(PREFIX)/bin
 	@install -m 0755 $(PROJECT_NAME) $(PREFIX)/bin/$(PROJECT_NAME)
 	@echo "installed -> $(PREFIX)/bin/$(PROJECT_NAME)"
-	@if [ -d templates ]; then \
-		rm -rf "$(PREFIX)/share/devpilot/templates"; \
-		install -d "$(PREFIX)/share/devpilot"; \
-		cp -R templates "$(PREFIX)/share/devpilot/templates"; \
-		echo "templates -> $(PREFIX)/share/devpilot/templates"; \
-	fi
 
 uninstall:
 	@rm -f $(PREFIX)/bin/$(PROJECT_NAME)
-	@rm -rf $(PREFIX)/share/devpilot/templates
 	@echo "removed -> $(PREFIX)/bin/$(PROJECT_NAME)"
 
 test:
