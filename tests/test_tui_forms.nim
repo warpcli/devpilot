@@ -6,12 +6,12 @@ let missingProject = projectFormCommand("", "/tmp/demo", "default", "Nim", "", "
 doAssert not missingProject.ok
 doAssert missingProject.error.contains("project name")
 
-let project = projectFormCommand("demo", "/tmp/demo", "", "Nim", "illwill",
+let project = projectFormCommand("demo", "/tmp/demo", "", "Nim", "bobabrew",
     "cli,tui")
 doAssert project.ok
 doAssert project.command.contains("project --namespace default add demo")
 doAssert project.command.contains("--language Nim")
-doAssert project.command.contains("--framework illwill")
+doAssert project.command.contains("--framework bobabrew")
 doAssert project.command.contains("--tags cli")
 doAssert project.command.contains("--tags tui")
 

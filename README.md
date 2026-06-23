@@ -12,7 +12,7 @@ devpilot
 - Manage workspaces, attach components, inspect status, run commands, and emit shell environment exports.
 - Manage reusable file/directory templates and apply them to new target directories with dry-run, conflict, and symlink controls.
 - Manage SSH machine entries, generate SSH config, check TCP reachability, and connect through stored host/interface metadata.
-- Browse all stored development data through an `illwill`-backed terminal dashboard.
+- Browse all stored development data through a `bobabrew`-backed terminal dashboard.
 - Store user data as versioned TOML files under the platform data directory (`$XDG_DATA_HOME/devpilot` on Linux when set), with backup/import/export commands.
 
 ## Development
@@ -83,7 +83,7 @@ dp tui
 
 ## TUI
 
-The full-screen TUI uses [`illwill`](https://github.com/johnnovak/illwill) as a small terminal backend.
+The full-screen TUI uses [`bobabrew`](https://github.com/bresilla/bobabrew) as its Bubble Tea-style terminal backend.
 
 ```sh
 dp tui

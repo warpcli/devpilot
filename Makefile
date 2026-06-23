@@ -15,6 +15,11 @@ PREFIX ?= $(HOME)/.local
 ARGS ?=
 BUILD_FLAGS ?= -d:release
 NIM_FILES := $(shell find src tests -name '*.nim' -type f | sort)
+BOBABREW_SRC := $(shell if [ -n "$$NIMBLE_DIR" ] && [ -d "$$NIMBLE_DIR/pkgcache/githubcom_bresillabobabrew/src" ]; then printf '%s' "$$NIMBLE_DIR/pkgcache/githubcom_bresillabobabrew/src"; elif [ -n "$$NIMBLE_DIR" ] && [ -d "$$NIMBLE_DIR/pkgcache/githubcom_bresillabobabrew_0.1.0/src" ]; then printf '%s' "$$NIMBLE_DIR/pkgcache/githubcom_bresillabobabrew_0.1.0/src"; elif [ -d "$(TOP_DIR)/../bobabrew/src" ]; then printf '%s' "$(TOP_DIR)/../bobabrew/src"; fi)
+NIM_FLAGS ?=
+ifneq ($(BOBABREW_SRC),)
+    NIM_FLAGS += --path:$(BOBABREW_SRC)
+endif
 
 HAS_REL := $(shell command -v git-rel 2>/dev/null)
 HAS_CLIFF := $(shell command -v git-cliff 2>/dev/null)
@@ -26,7 +31,7 @@ $(info ------------------------------------------)
 .PHONY: build b compile c run r install uninstall test t test-all cover check vet fmt fmt-check tidy clean changelog verify release mdbook help h
 
 build:
-	@$(NIM) c $(BUILD_FLAGS) --out:$(PROJECT_NAME) src/dp.nim
+	@$(NIM) c $(NIM_FLAGS) $(BUILD_FLAGS) --out:$(PROJECT_NAME) src/dp.nim
 
 b: build
 
@@ -57,7 +62,7 @@ t: test
 
 test-all:
 	@$(NIMBLE) test -y
-	@$(NIM) c -d:release --out:/tmp/devpilot-release-check src/dp.nim
+	@$(NIM) c $(NIM_FLAGS) -d:release --out:/tmp/devpilot-release-check src/dp.nim
 	@rm -f /tmp/devpilot-release-check
 
 cover:
@@ -65,7 +70,7 @@ cover:
 	@$(MAKE) test
 
 check:
-	@$(NIM) check src/dp.nim
+	@$(NIM) check $(NIM_FLAGS) src/dp.nim
 
 vet: check
 

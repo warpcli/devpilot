@@ -18,11 +18,11 @@ doAssert info.contains("Framework: cobra")
 doAssert info.contains("Tags: cli")
 
 discard checked(dp & "project set demo --path /tmp/demo2 --language nim " &
-    "--framework illwill --description updated")
+    "--framework bobabrew --description updated")
 let updated = checked(dp & "project info demo")
 doAssert updated.contains("Path: /tmp/demo2")
 doAssert updated.contains("Language: nim")
-doAssert updated.contains("Framework: illwill")
+doAssert updated.contains("Framework: bobabrew")
 doAssert updated.contains("Description: updated")
 
 discard checked(dp & "project tag add demo tui")

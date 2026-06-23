@@ -1,8 +1,22 @@
 import std/[cmdline, os, osproc, streams, strutils]
 
-import illwill
+import boba
+import boba/ansi/wrap
+import boba/uv/styled
 
 import devpilot
+
+let
+  cPrimary = basicColor(1)
+  cOk = basicColor(2)
+  cWarn = basicColor(3)
+  cTag = basicColor(6)
+  cMuted = basicColor(8)
+  cText = basicColor(15)
+  rowBg = extendedColor(232)
+  rowBgAlt = extendedColor(235)
+  rowBgSelected = extendedColor(237)
+  panelBg = extendedColor(233)
 
 type
   ViewState = object
@@ -21,6 +35,63 @@ type
     ok*: bool
     command*: string
     error*: string
+
+  UiMode = enum
+    modeDashboard
+    modeOverlay
+    modePrompt
+
+  PromptKind = enum
+    promptNone
+    promptFilter
+    promptCommand
+    promptDeleteConfirm
+    promptProjectName
+    promptProjectPath
+    promptProjectNamespace
+    promptProjectLanguage
+    promptProjectFramework
+    promptProjectTags
+    promptWorkspaceName
+    promptWorkspacePath
+    promptWorkspaceDescription
+    promptMachineName
+    promptMachineUsername
+    promptMachineKey
+    promptMachineHost
+    promptTemplateName
+    promptTemplateDescription
+    promptTemplatePath
+    promptTemplateLanguage
+    promptTemplateFramework
+
+  DevpilotApp = ref object of Model
+    data: DashboardData
+    state: ViewState
+    width: int
+    height: int
+    mode: UiMode
+    overlayTitle: string
+    overlayLines: seq[string]
+    overlayScroll: int
+    promptKind: PromptKind
+    promptTitle: string
+    promptValue: string
+    promptHistory: seq[string]
+    promptHistoryIndex: int
+    deleteCommandText: string
+    deleteItemName: string
+    formSectionTitle: string
+    formName: string
+    formPath: string
+    formNamespace: string
+    formLanguage: string
+    formFramework: string
+    formTags: string
+    formDescription: string
+    formUsername: string
+    formKey: string
+    formHost: string
 
 proc tuiHelp() =
   echo """
@@ -144,19 +215,6 @@ proc templateFormCommand*(name, description, path, language,
     command.add(" --framework " & quoteShell(framework.strip()))
   formCommand(command)
 
-proc fit(value: string; width: int): string =
-  if width <= 0:
-    return ""
-  if value.len <= width:
-    return value
-  if width <= 1:
-    return value[0 ..< width]
-  value[0 ..< max(0, width - 1)] & "…"
-
-proc pad(value: string; width: int): string =
-  let clipped = fit(value, width)
-  clipped & repeat(" ", max(0, width - clipped.len))
-
 proc clampInt(value, low, high: int): int =
   if high < low:
     return low
@@ -205,219 +263,241 @@ proc clampState(state: var ViewState; data: DashboardData) =
     state.cursor = clampInt(state.cursor, 0, rows.high)
     state.scroll = clampInt(state.scroll, 0, state.cursor)
 
-proc writeLine(tb: var TerminalBuffer; x, y, width: int; text: string;
-    color = fgWhite) =
-  if width <= 0 or y < 0 or y >= tb.height.int or x >= tb.width.int:
-    return
-  tb.write(max(0, x), y, color, fit(text, min(width, tb.width.int - max(0, x))))
+proc rowCapacity(height: int): int =
+  let contentHeight = max(height - 2, 10)
+  max((contentHeight - 4) div 3, 1)
 
-proc clearLine(tb: var TerminalBuffer; y: int) =
-  if y >= 0 and y < tb.height.int:
-    tb.write(0, y, repeat(" ", tb.width.int))
-
-proc drawHorizontal(tb: var TerminalBuffer; y: int; color = fgBlue) =
-  if y >= 0 and y < tb.height.int:
-    tb.write(0, y, color, repeat("─", tb.width.int))
-
-proc drawTabs(tb: var TerminalBuffer; data: DashboardData; state: ViewState; y: int) =
-  var x = 2
-  for i, section in data.sections:
-    let active = i == state.section
-    let label = if active: "[" & section.title & "]" else: " " & section.title & " "
-    tb.write(x, y, if active: fgYellow else: fgWhite, label)
-    inc x, label.len + 1
-
-proc drawTable(tb: var TerminalBuffer; section: DashboardSection;
-    state: var ViewState; x, y, width, height: int) =
-  if height <= 0:
-    return
-  let rows = filteredRows(section, state.filter)
+proc clampViewport(state: var ViewState; data: DashboardData; height: int) =
+  clampState(state, data)
+  let rows = sectionRows(data, state)
   if rows.len == 0:
-    let message =
-      if state.filter.len == 0: section.empty
-      else: "No rows match filter: " & state.filter
-    writeLine(tb, x, y, width, message, fgYellow)
+    state.scroll = 0
     return
-
-  let markerWidth = 2
-  let headerWidth = max(8, (width - markerWidth) div max(1,
-      section.headers.len))
-  var header = repeat(" ", markerWidth)
-  for item in section.headers:
-    header.add(pad(item, headerWidth))
-    header.add(" ")
-  writeLine(tb, x, y, width, header, fgCyan)
-  drawHorizontal(tb, y + 1)
-
-  let visible = max(0, height - 2)
+  let visible = rowCapacity(height)
   if state.cursor < state.scroll:
     state.scroll = state.cursor
-  if state.cursor >= state.scroll + visible:
+  elif state.cursor >= state.scroll + visible:
     state.scroll = max(0, state.cursor - visible + 1)
+  state.scroll = clampInt(state.scroll, 0, max(0, rows.len - visible))
 
-  for i in 0 ..< min(visible, rows.len - state.scroll):
-    let rowIndex = state.scroll + i
-    let row = rows[rowIndex]
-    var line = if rowIndex == state.cursor: "› " else: "  "
-    for cell in row:
-      line.add(pad(cell, headerWidth))
-      line.add(" ")
-    writeLine(tb, x, y + 2 + i, width, line, if rowIndex ==
-        state.cursor: fgYellow else: fgWhite)
-
-proc sectionKeymap(section: DashboardSection): string =
-  case section.title
-  of "Projects":
-    "Enter info · a form add project · d delete · / filter · : command"
-  of "Workspaces":
-    "Enter info · a form add workspace · d delete · / filter · : command"
-  of "Machines":
-    "Enter info · a form add machine · d delete · / filter · : command"
-  of "Templates":
-    "Enter info · a form add template · d delete · / filter · : command"
+proc dash(s: string): string =
+  if s.strip().len == 0 or s == "None":
+    "—"
   else:
-    "Enter details · a add · d delete · : command · / filter"
+    s
 
-proc drawDetails(tb: var TerminalBuffer; section: DashboardSection;
-    state: ViewState; x, y, width, height: int) =
-  if height <= 0:
-    return
-  writeLine(tb, x, y, width, "Details", fgCyan)
-  drawHorizontal(tb, y + 1)
-  let rows = filteredRows(section, state.filter)
+proc cell(bg, fg: Color; width: int; text: string; right = false;
+    bold = false; italic = false): string =
+  let w = max(width, 1)
+  var st = newStyle().background(bg).foreground(fg).width(w)
+  if right:
+    st = st.align(alRight)
+  if bold:
+    st = st.bold
+  if italic:
+    st = st.italic
+  st.render(truncate(text, w, "…"))
+
+proc titleColor(title: string): Color =
+  case title
+  of "Projects": cPrimary
+  of "Workspaces": cTag
+  of "Machines": cWarn
+  of "Templates": cOk
+  else: cPrimary
+
+proc sectionIcon(title: string): string =
+  case title
+  of "Projects": "◆"
+  of "Workspaces": "▣"
+  of "Machines": "●"
+  of "Templates": "◇"
+  else: "•"
+
+proc rowParts(section: DashboardSection; row: seq[string]): tuple[
+    name, right, meta, desc: string] =
+  let title = section.title
+  result.name = if row.len > 0: row[0] else: ""
+  case title
+  of "Projects":
+    result.right = if row.len > 3: dash(row[3]) else: "—"
+    result.meta = "namespace " & (if row.len > 1: dash(row[1]) else: "—")
+    result.desc = if row.len > 2: dash(row[2]) else: "—"
+  of "Workspaces":
+    result.right = if row.len > 2: dash(row[2]) else: "—"
+    result.meta = "components " & (if row.len > 3: dash(row[3]) else: "0")
+    result.desc = if row.len > 1: dash(row[1]) else: "—"
+  of "Machines":
+    result.right = if row.len > 1: dash(row[1]) else: "—"
+    result.meta = if row.len > 2: dash(row[2]) else: "—"
+    result.desc = "key " & (if row.len > 3: dash(row[3]) else: "—")
+  of "Templates":
+    result.right = if row.len > 3: dash(row[3]) else: "—"
+    result.meta = if row.len > 1: dash(row[1]) else: "—"
+    result.desc = if row.len > 2: dash(row[2]) else: "—"
+  else:
+    result.right = if row.len > 1: dash(row[1]) else: "—"
+    result.meta = row.join(" · ")
+    result.desc = ""
+
+proc renderRow(section: DashboardSection; row: seq[string]; width, index: int;
+    selected: bool): string =
+  let bg =
+    if selected: rowBgSelected
+    elif index mod 2 == 1: rowBgAlt
+    else: rowBg
+  let accent = titleColor(section.title)
+  let marker = if selected: "┃ " else: "  "
+  let bar = newStyle().background(bg).foreground(accent).render(marker)
+  let inner = max(width - 2, 20)
+  let parts = rowParts(section, row)
+
+  let iconCol = 2
+  let rightCol = min(max(14, inner div 4), 28)
+  let nameCol = max(8, inner - iconCol - rightCol)
+  let line1 = bar &
+      cell(bg, accent, iconCol, sectionIcon(section.title)) &
+      cell(bg, if selected: accent else: cText, nameCol, parts.name,
+          bold = true) &
+      cell(bg, cTag, rightCol, parts.right, right = true)
+
+  let line2 = bar & cell(bg, cMuted, inner, parts.meta)
+  let line3 = bar & cell(bg, cMuted, inner, parts.desc, italic = true)
+  line1 & "\n" & line2 & "\n" & line3
+
+proc tabBar(data: DashboardData; state: ViewState; width: int): string =
+  var parts: seq[string]
+  for i, section in data.sections:
+    let label = " " & section.title & " " & $section.rows.len & " "
+    if i == state.section:
+      parts.add newStyle().bold.foreground(cText).background(titleColor(
+          section.title)).render(label)
+    else:
+      parts.add newStyle().foreground(cMuted).background(rowBgAlt).render(label)
+  truncate(parts.join(" "), width, "…")
+
+proc statusLine(state: ViewState; width: int): string =
+  let filterText = if state.filter.len == 0: "filter off" else: "/" & state.filter
+  let message = if state.message.len == 0: "ready" else: state.message
+  truncate(filterText & "  ·  " & message, width, "…")
+
+proc helpLine(width: int): string =
+  newStyle().foreground(cMuted).render(truncate(
+      "↑/↓ move · ←/→ tabs · enter details · a add · d delete · / filter · : command · r reload · q quit",
+      width, "…"))
+
+proc dashboardBody(m: DevpilotApp): string =
+  var state = m.state
+  clampViewport(state, m.data, m.height)
+  m.state = state
+
+  let width = max(m.width - 4, 40)
+  let contentHeight = max(m.height - 2, 10)
+  let section = currentSection(m.data, state)
+  let rows = sectionRows(m.data, state)
+  let visibleRows = rowCapacity(m.height)
+
+  var lines: seq[string]
+  lines.add tabBar(m.data, state, width)
+  lines.add ""
+
   if rows.len == 0:
-    writeLine(tb, x, y + 2, width, "Nothing selected.", fgWhite)
-    return
+    let empty = newStyle().foreground(cMuted).padding(1, 2).withBorder(
+        roundedBorder()).render(section.empty)
+    for line in empty.split('\n'):
+      lines.add truncate(line, width, "…")
+  else:
+    let last = min(state.scroll + visibleRows, rows.len)
+    for rowIndex in state.scroll ..< last:
+      for line in renderRow(section, rows[rowIndex], width, rowIndex,
+          rowIndex == state.cursor).split('\n'):
+        lines.add line
 
-  let row = rows[clampInt(state.cursor, 0, rows.high)]
-  let limit = min(min(section.headers.len, row.len), max(0, height - 3))
-  for i in 0 ..< limit:
-    writeLine(tb, x, y + 2 + i, width, section.headers[i] & ": " & row[i], fgWhite)
-  writeLine(tb, x, y + height - 1, width, sectionKeymap(section), fgYellow)
+  while lines.len < contentHeight - 2:
+    lines.add ""
+  lines.add statusLine(state, width)
+  lines.add helpLine(width)
+  if lines.len > contentHeight:
+    lines = lines[0 ..< contentHeight]
+  lines.join("\n")
 
-proc drawDashboard(tb: var TerminalBuffer; data: DashboardData;
-    state: var ViewState) =
-  tb.clear()
-  let width = tb.width.int
-  let height = tb.height.int
-  clampState(state, data)
-  let section = currentSection(data, state)
-  let rows = sectionRows(data, state)
+proc stripAnsi(s: string): string =
+  var i = 0
+  while i < s.len:
+    if s[i] == '\x1b':
+      if i + 1 < s.len and s[i + 1] == '[':
+        i += 2
+        while i < s.len and (s[i] < '\x40' or s[i] > '\x7e'):
+          inc i
+        if i < s.len:
+          inc i
+      elif i + 1 < s.len and s[i + 1] == ']':
+        i += 2
+        while i < s.len and s[i] != '\x07':
+          inc i
+        if i < s.len:
+          inc i
+      else:
+        i += 2
+    else:
+      result.add s[i]
+      inc i
 
-  writeLine(tb, 2, 0, width - 4, "devpilot", fgYellow)
-  writeLine(tb, 13, 0, width - 15, "Development workflow dashboard", fgWhite)
-  drawTabs(tb, data, state, 2)
-  drawHorizontal(tb, 3)
+proc modal(title: string; lines: seq[string]; scroll, width,
+    height: int): string =
+  let modalWidth = max(36, min(width - 6, 96))
+  let bodyRows = max(3, min(height - 10, 16))
+  let titleBar = newStyle().bold.foreground(cText).background(cPrimary).render(
+      " " & title & " ")
 
-  let filterLabel = if state.filter.len == 0: "off" else: state.filter
-  writeLine(tb, 2, 4, width - 4, section.title & " · " & $rows.len &
-      " row(s) · filter " & filterLabel, fgWhite)
-
-  let detailHeight = 8
-  let tableHeight = max(3, height - detailHeight - 7)
-  drawTable(tb, section, state, 2, 6, width - 4, tableHeight)
-  drawDetails(tb, section, state, 2, height - detailHeight, width - 4,
-      detailHeight - 2)
-
-  drawHorizontal(tb, height - 2)
-  let message = if state.message.len == 0: "q quit · ? help · data " &
-      data.dataDir else: state.message
-  writeLine(tb, 2, height - 1, width - 4, message, fgWhite)
-  tb.display()
-
-proc drawOverlay(tb: var TerminalBuffer; title: string; lines: seq[string];
-    scroll = 0) =
-  let width = tb.width.int
-  let height = tb.height.int
-  let boxWidth = max(30, min(width - 4, 100))
-  let boxHeight = min(height - 4, max(6, lines.len + 4))
-  let left = max(0, (width - boxWidth) div 2)
-  let top = max(0, (height - boxHeight) div 2)
-
-  for y in top ..< min(height, top + boxHeight):
-    clearLine(tb, y)
-  writeLine(tb, left, top, boxWidth, "┌" & repeat("─", max(0, boxWidth -
-      2)) & "┐", fgYellow)
-  writeLine(tb, left, top + 1, boxWidth, "│ " & fit(title, max(0, boxWidth -
-      4)) & repeat(" ", max(0, boxWidth - title.len - 4)) & " │", fgYellow)
-  writeLine(tb, left, top + 2, boxWidth, "├" & repeat("─", max(0, boxWidth -
-      2)) & "┤", fgYellow)
-  let bodyRows = max(0, boxHeight - 5)
+  var body: seq[string]
+  body.add titleBar
+  body.add ""
   for i in 0 ..< bodyRows:
     let lineIndex = scroll + i
     let text = if lineIndex < lines.len: lines[lineIndex] else: ""
-    writeLine(tb, left, top + 3 + i, boxWidth, "│ " & fit(text, max(0,
-        boxWidth - 4)) & repeat(" ", max(0, boxWidth - text.len - 4)) & " │", fgWhite)
-  writeLine(tb, left, top + boxHeight - 2, boxWidth, "├" & repeat("─", max(
-      0, boxWidth - 2)) & "┤", fgYellow)
-  let footer =
-    if lines.len > bodyRows: "│ ↑/↓ scroll · Esc closes"
-    else: "│ press any key"
-  writeLine(tb, left, top + boxHeight - 1, boxWidth, footer &
-      repeat(" ", max(0, boxWidth - footer.len - 1)) & "│", fgYellow)
-  tb.display()
+    body.add truncate(text, max(8, modalWidth - 4), "…")
+  body.add ""
+  if lines.len > bodyRows:
+    body.add newStyle().foreground(cMuted).render(
+        "↑/↓ scroll · pgup/pgdn jump · esc close")
+  else:
+    body.add newStyle().foreground(cMuted).render("enter/esc close")
+
+  newStyle().padding(1, 2).foreground(cPrimary).background(panelBg).withBorder(
+      roundedBorder()).render(body.join("\n"))
+
+proc promptModal(title, value: string; width, height: int): string =
+  let modalWidth = max(36, min(width - 6, 96))
+  let titleBar = newStyle().bold.foreground(cText).background(cPrimary).render(
+      " " & title & " ")
+  let input = newStyle().foreground(cText).background(rowBgSelected).width(
+      max(12, modalWidth - 8)).render("> " & value)
+  let body = titleBar & "\n\n" & input & "\n\n" &
+      newStyle().foreground(cMuted).render(
+      "enter accepts · esc cancels · backspace deletes")
+  newStyle().padding(1, 2).foreground(cPrimary).background(panelBg).withBorder(
+      roundedBorder()).render(body)
+
+proc overlay(base, dialog: string; width, height: int): string =
+  let w = max(width, 1)
+  let h = max(height, 1)
+  let dimmed = newStyle().foreground(cMuted).render(stripAnsi(base))
+  var buf = newBuffer(w, h)
+  newStyledString(dimmed).draw(buf)
+
+  let dialogLines = dialog.split('\n')
+  var dialogWidth = 0
+  for line in dialogLines:
+    dialogWidth = max(dialogWidth, stringWidth(line))
+  var dialogBuf = newBuffer(max(dialogWidth, 1), max(dialogLines.len, 1))
+  newStyledString(dialog).draw(dialogBuf)
+  buf.blit(dialogBuf, max((w - dialogWidth) div 2, 0),
+      max((h - dialogLines.len) div 2, 0))
+  buf.render.replace("\r\n", "\n")
 
 proc overlayScroll*(current, lineCount, delta: int): int =
   clampInt(current + delta, 0, max(0, lineCount - 1))
-
-proc waitOverlay(tb: var TerminalBuffer; title: string; content: string) =
-  let lines = if content.len == 0: @["No output."] else: content.splitLines()
-  var scroll = 0
-  while true:
-    drawOverlay(tb, title, lines, scroll)
-    case getKeyWithTimeout(120000)
-    of Key.Escape, Key.Enter, Key.Q, Key.CtrlC:
-      return
-    of Key.Up, Key.K:
-      scroll = overlayScroll(scroll, lines.len, -1)
-    of Key.Down, Key.J:
-      scroll = overlayScroll(scroll, lines.len, 1)
-    of Key.PageUp:
-      scroll = overlayScroll(scroll, lines.len, -10)
-    of Key.PageDown:
-      scroll = overlayScroll(scroll, lines.len, 10)
-    of Key.Home:
-      scroll = 0
-    of Key.End:
-      scroll = max(0, lines.high)
-    else:
-      return
-
-proc printable(key: Key): string =
-  let code = ord(key)
-  if code >= 32 and code <= 126:
-    $chr(code)
-  else:
-    ""
-
-proc prompt(tb: var TerminalBuffer; data: DashboardData; state: var ViewState;
-    title, initial: string; history: seq[string] = @[]): tuple[ok: bool;
-    value: string] =
-  var value = initial
-  var historyIndex = history.len
-  while true:
-    drawDashboard(tb, data, state)
-    drawOverlay(tb, title, @["> " & value, "",
-        "Enter accepts · Esc cancels · Backspace deletes"])
-    let key = getKeyWithTimeout(80)
-    case key
-    of Key.Escape, Key.CtrlC:
-      return (false, "")
-    of Key.Enter:
-      return (true, value.strip())
-    of Key.Backspace, Key.CtrlH:
-      if value.len > 0:
-        value.setLen(value.len - 1)
-    of Key.Up:
-      if history.len > 0:
-        historyIndex = max(0, historyIndex - 1)
-        value = history[historyIndex]
-    of Key.Down:
-      if history.len > 0:
-        historyIndex = min(history.len, historyIndex + 1)
-        value = if historyIndex >= history.len: "" else: history[historyIndex]
-    else:
-      value.add(printable(key))
 
 proc runCliCommand(commandInput: string): CommandResult =
   var command = commandInput.strip()
@@ -441,7 +521,8 @@ proc runCliCommand(commandInput: string): CommandResult =
     return CommandResult(code: 1, output: "Interactive ssh is disabled inside the TUI; run this from the normal CLI")
 
   try:
-    let process = startProcess(getAppFilename(), args = args, options = {poStdErrToStdOut})
+    let process = startProcess(getAppFilename(), args = args,
+        options = {poStdErrToStdOut})
     let output = process.outputStream.readAll()
     let code = process.waitForExit()
     process.close()
@@ -481,74 +562,6 @@ proc deleteCommand(section: DashboardSection; row: seq[string]): string =
   else:
     ""
 
-proc promptAddForm(tb: var TerminalBuffer; data: DashboardData;
-    state: var ViewState; section: DashboardSection): tuple[ok: bool;
-    command: string; error: string] =
-  let cwd = getCurrentDir()
-
-  case section.title
-  of "Projects":
-    let name = prompt(tb, data, state, section.title & " form · name", "")
-    if not name.ok: return (false, "", "")
-    let path = prompt(tb, data, state, section.title & " form · path", cwd)
-    if not path.ok: return (false, "", "")
-    let namespace = prompt(tb, data, state, section.title &
-        " form · namespace", "default")
-    if not namespace.ok: return (false, "", "")
-    let language = prompt(tb, data, state, section.title & " form · language", "")
-    if not language.ok: return (false, "", "")
-    let framework = prompt(tb, data, state, section.title &
-        " form · framework", "")
-    if not framework.ok: return (false, "", "")
-    let tags = prompt(tb, data, state, section.title &
-        " form · tags comma-separated", "")
-    if not tags.ok: return (false, "", "")
-    let built = projectFormCommand(name.value, path.value, namespace.value,
-        language.value, framework.value, tags.value)
-    (built.ok, built.command, built.error)
-  of "Workspaces":
-    let name = prompt(tb, data, state, section.title & " form · name", "")
-    if not name.ok: return (false, "", "")
-    let path = prompt(tb, data, state, section.title & " form · path", cwd)
-    if not path.ok: return (false, "", "")
-    let description = prompt(tb, data, state, section.title &
-        " form · description", "")
-    if not description.ok: return (false, "", "")
-    let built = workspaceFormCommand(name.value, path.value, description.value)
-    (built.ok, built.command, built.error)
-  of "Machines":
-    let name = prompt(tb, data, state, section.title & " form · name", "")
-    if not name.ok: return (false, "", "")
-    let username = prompt(tb, data, state, section.title & " form · username",
-        getEnv("USER", "user"))
-    if not username.ok: return (false, "", "")
-    let key = prompt(tb, data, state, section.title & " form · key", "")
-    if not key.ok: return (false, "", "")
-    let host = prompt(tb, data, state, section.title &
-        " form · host IP[:PORT][:IFACE]", "127.0.0.1:22:local")
-    if not host.ok: return (false, "", "")
-    let built = machineFormCommand(name.value, username.value, key.value,
-        host.value)
-    (built.ok, built.command, built.error)
-  of "Templates":
-    let name = prompt(tb, data, state, section.title & " form · name", "")
-    if not name.ok: return (false, "", "")
-    let description = prompt(tb, data, state, section.title &
-        " form · description", "")
-    if not description.ok: return (false, "", "")
-    let path = prompt(tb, data, state, section.title & " form · path", cwd)
-    if not path.ok: return (false, "", "")
-    let language = prompt(tb, data, state, section.title & " form · language", "")
-    if not language.ok: return (false, "", "")
-    let framework = prompt(tb, data, state, section.title &
-        " form · framework", "")
-    if not framework.ok: return (false, "", "")
-    let built = templateFormCommand(name.value, description.value, path.value,
-        language.value, framework.value)
-    (built.ok, built.command, built.error)
-  else:
-    (false, "", "Unsupported form section: " & section.title)
-
 proc renderSnapshot(data: DashboardData): string =
   result.add("devpilot tui\n")
   result.add("data: " & data.dataDir & "\n")
@@ -571,10 +584,307 @@ Actions:
   q/Esc  quit
 """
 
-proc exitProc() {.noconv.} =
-  illwillDeinit()
-  showCursor()
-  quit(0)
+proc showOverlay(m: DevpilotApp; title, content: string) =
+  m.mode = modeOverlay
+  m.overlayTitle = title
+  m.overlayLines = if content.len == 0: @[
+      "No output."] else: content.splitLines()
+  m.overlayScroll = 0
+
+proc showPrompt(m: DevpilotApp; kind: PromptKind; title, initial: string;
+    history: seq[string] = @[]) =
+  m.mode = modePrompt
+  m.promptKind = kind
+  m.promptTitle = title
+  m.promptValue = initial
+  m.promptHistory = history
+  m.promptHistoryIndex = history.len
+
+proc runAndOverlay(m: DevpilotApp; command, titlePrefix: string) =
+  let res = runCliCommand(command)
+  m.data = loadDashboardData()
+  m.state.message = if res.code == 0: "ok: " & command else: "failed: " & command
+  m.showOverlay(titlePrefix & " (" & $res.code & ")", res.output)
+
+proc startAddForm(m: DevpilotApp; section: DashboardSection) =
+  m.formSectionTitle = section.title
+  m.formName = ""
+  m.formPath = ""
+  m.formNamespace = ""
+  m.formLanguage = ""
+  m.formFramework = ""
+  m.formTags = ""
+  m.formDescription = ""
+  m.formUsername = ""
+  m.formKey = ""
+  m.formHost = ""
+
+  case section.title
+  of "Projects":
+    m.showPrompt(promptProjectName, section.title & " form · name", "")
+  of "Workspaces":
+    m.showPrompt(promptWorkspaceName, section.title & " form · name", "")
+  of "Machines":
+    m.showPrompt(promptMachineName, section.title & " form · name", "")
+  of "Templates":
+    m.showPrompt(promptTemplateName, section.title & " form · name", "")
+  else:
+    m.showOverlay("Validation", "Unsupported form section: " & section.title)
+
+proc finishForm(m: DevpilotApp; built: FormBuildResult) =
+  if built.ok:
+    m.runAndOverlay(built.command, "Add result")
+  elif built.error.len > 0:
+    m.state.message = built.error
+    m.showOverlay("Validation", built.error)
+  else:
+    m.mode = modeDashboard
+
+proc acceptPrompt(m: DevpilotApp; value: string) =
+  let v = value.strip()
+  case m.promptKind
+  of promptFilter:
+    m.state.filter = v
+    m.state.cursor = 0
+    m.state.scroll = 0
+    m.mode = modeDashboard
+  of promptCommand:
+    let res = runCliCommand(v)
+    if res.code == 0:
+      m.state.commandHistory.add(v)
+    m.data = loadDashboardData()
+    m.state.message = if res.code == 0: "ok: " & v else: "failed: " & v
+    m.showOverlay("Command result (" & $res.code & ")", res.output)
+  of promptDeleteConfirm:
+    if v == "yes":
+      m.runAndOverlay(m.deleteCommandText, "Delete result")
+    else:
+      m.state.message = "delete cancelled"
+      m.mode = modeDashboard
+  of promptProjectName:
+    m.formName = v
+    m.showPrompt(promptProjectPath, m.formSectionTitle & " form · path",
+        getCurrentDir())
+  of promptProjectPath:
+    m.formPath = v
+    m.showPrompt(promptProjectNamespace, m.formSectionTitle &
+        " form · namespace", "default")
+  of promptProjectNamespace:
+    m.formNamespace = v
+    m.showPrompt(promptProjectLanguage, m.formSectionTitle &
+        " form · language", "")
+  of promptProjectLanguage:
+    m.formLanguage = v
+    m.showPrompt(promptProjectFramework, m.formSectionTitle &
+        " form · framework", "")
+  of promptProjectFramework:
+    m.formFramework = v
+    m.showPrompt(promptProjectTags, m.formSectionTitle &
+        " form · tags comma-separated", "")
+  of promptProjectTags:
+    m.formTags = v
+    m.finishForm(projectFormCommand(m.formName, m.formPath, m.formNamespace,
+        m.formLanguage, m.formFramework, m.formTags))
+  of promptWorkspaceName:
+    m.formName = v
+    m.showPrompt(promptWorkspacePath, m.formSectionTitle & " form · path",
+        getCurrentDir())
+  of promptWorkspacePath:
+    m.formPath = v
+    m.showPrompt(promptWorkspaceDescription, m.formSectionTitle &
+        " form · description", "")
+  of promptWorkspaceDescription:
+    m.formDescription = v
+    m.finishForm(workspaceFormCommand(m.formName, m.formPath,
+        m.formDescription))
+  of promptMachineName:
+    m.formName = v
+    m.showPrompt(promptMachineUsername, m.formSectionTitle &
+        " form · username", getEnv("USER", "user"))
+  of promptMachineUsername:
+    m.formUsername = v
+    m.showPrompt(promptMachineKey, m.formSectionTitle & " form · key", "")
+  of promptMachineKey:
+    m.formKey = v
+    m.showPrompt(promptMachineHost, m.formSectionTitle &
+        " form · host IP[:PORT][:IFACE]", "127.0.0.1:22:local")
+  of promptMachineHost:
+    m.formHost = v
+    m.finishForm(machineFormCommand(m.formName, m.formUsername, m.formKey,
+        m.formHost))
+  of promptTemplateName:
+    m.formName = v
+    m.showPrompt(promptTemplateDescription, m.formSectionTitle &
+        " form · description", "")
+  of promptTemplateDescription:
+    m.formDescription = v
+    m.showPrompt(promptTemplatePath, m.formSectionTitle & " form · path",
+        getCurrentDir())
+  of promptTemplatePath:
+    m.formPath = v
+    m.showPrompt(promptTemplateLanguage, m.formSectionTitle &
+        " form · language", "")
+  of promptTemplateLanguage:
+    m.formLanguage = v
+    m.showPrompt(promptTemplateFramework, m.formSectionTitle &
+        " form · framework", "")
+  of promptTemplateFramework:
+    m.formFramework = v
+    m.finishForm(templateFormCommand(m.formName, m.formDescription, m.formPath,
+        m.formLanguage, m.formFramework))
+  of promptNone:
+    m.mode = modeDashboard
+
+proc printable(key: Key): string =
+  if key.text.len > 0:
+    return key.text
+  if key.code == KeySpace:
+    return " "
+  ""
+
+method update(m: DevpilotApp; msg: Msg): (Model, Cmd) =
+  if msg of WindowSizeMsg:
+    let ws = WindowSizeMsg(msg)
+    if ws.width > 0:
+      m.width = ws.width
+    if ws.height > 0:
+      m.height = ws.height
+    clampViewport(m.state, m.data, m.height)
+    return (Model(m), nil)
+
+  if msg of KeyPressMsg:
+    let key = KeyPressMsg(msg).key
+
+    case m.mode
+    of modeOverlay:
+      if key.matchString("up", "k"):
+        m.overlayScroll = overlayScroll(m.overlayScroll, m.overlayLines.len, -1)
+      elif key.matchString("down", "j"):
+        m.overlayScroll = overlayScroll(m.overlayScroll, m.overlayLines.len, 1)
+      elif key.matchString("pgup"):
+        m.overlayScroll = overlayScroll(m.overlayScroll, m.overlayLines.len, -10)
+      elif key.matchString("pgdown"):
+        m.overlayScroll = overlayScroll(m.overlayScroll, m.overlayLines.len, 10)
+      elif key.matchString("home"):
+        m.overlayScroll = 0
+      elif key.matchString("end"):
+        m.overlayScroll = max(0, m.overlayLines.high)
+      elif key.matchString("esc", "enter", "q", "Q", "ctrl+c"):
+        m.mode = modeDashboard
+      return (Model(m), nil)
+
+    of modePrompt:
+      if key.matchString("esc", "ctrl+c"):
+        m.mode = modeDashboard
+      elif key.matchString("enter"):
+        m.acceptPrompt(m.promptValue)
+      elif key.matchString("backspace", "ctrl+h"):
+        if m.promptValue.len > 0:
+          m.promptValue.setLen(m.promptValue.len - 1)
+      elif key.matchString("up"):
+        if m.promptHistory.len > 0:
+          m.promptHistoryIndex = max(0, m.promptHistoryIndex - 1)
+          m.promptValue = m.promptHistory[m.promptHistoryIndex]
+      elif key.matchString("down"):
+        if m.promptHistory.len > 0:
+          m.promptHistoryIndex = min(m.promptHistory.len,
+              m.promptHistoryIndex + 1)
+          m.promptValue = if m.promptHistoryIndex >=
+              m.promptHistory.len: "" else: m.promptHistory[
+                  m.promptHistoryIndex]
+      else:
+        m.promptValue.add(printable(key))
+      return (Model(m), nil)
+
+    of modeDashboard:
+      if key.matchString("q", "Q", "esc", "ctrl+c"):
+        return (Model(m), Quit)
+      elif key.matchString("?"):
+        m.showOverlay("Help", helpText())
+      elif key.matchString("r", "R"):
+        m.data = loadDashboardData()
+        m.state.message = "reloaded"
+      elif key.matchString("left", "h"):
+        dec m.state.section
+        m.state.cursor = 0
+        m.state.scroll = 0
+        m.state.filter = ""
+      elif key.matchString("right", "l", "tab"):
+        inc m.state.section
+        m.state.cursor = 0
+        m.state.scroll = 0
+        m.state.filter = ""
+      elif key.matchString("up", "k"):
+        dec m.state.cursor
+      elif key.matchString("down", "j"):
+        inc m.state.cursor
+      elif key.matchString("pgup"):
+        dec m.state.cursor, rowCapacity(m.height)
+      elif key.matchString("pgdown"):
+        inc m.state.cursor, rowCapacity(m.height)
+      elif key.matchString("1"):
+        m.state.section = 0
+        m.state.cursor = 0
+        m.state.scroll = 0
+        m.state.filter = ""
+      elif key.matchString("2"):
+        m.state.section = 1
+        m.state.cursor = 0
+        m.state.scroll = 0
+        m.state.filter = ""
+      elif key.matchString("3"):
+        m.state.section = 2
+        m.state.cursor = 0
+        m.state.scroll = 0
+        m.state.filter = ""
+      elif key.matchString("4"):
+        m.state.section = 3
+        m.state.cursor = 0
+        m.state.scroll = 0
+        m.state.filter = ""
+      elif key.matchString("/"):
+        m.showPrompt(promptFilter, "Filter " & currentSection(m.data,
+            m.state).title, m.state.filter)
+      elif key.matchString(":"):
+        m.showPrompt(promptCommand, "Run devpilot command", "",
+            m.state.commandHistory)
+      elif key.matchString("a", "A"):
+        m.startAddForm(currentSection(m.data, m.state))
+      elif key.matchString("enter"):
+        let row = selectedRow(m.data, m.state)
+        let command = infoCommand(currentSection(m.data, m.state), row)
+        if command.len > 0:
+          let res = runCliCommand(command)
+          m.showOverlay("Details (" & $res.code & ")", res.output)
+      elif key.matchString("d", "D", "delete"):
+        let section = currentSection(m.data, m.state)
+        let row = selectedRow(m.data, m.state)
+        let command = deleteCommand(section, row)
+        if command.len > 0:
+          m.deleteCommandText = command
+          m.deleteItemName = row[0]
+          m.showPrompt(promptDeleteConfirm, "Delete " & section.title &
+              " item", "type yes to delete " & row[0])
+
+  clampViewport(m.state, m.data, m.height)
+  (Model(m), nil)
+
+method view(m: DevpilotApp): View =
+  let base = newStyle().padding(1, 2).render(dashboardBody(m))
+  var content = base
+  case m.mode
+  of modeOverlay:
+    content = overlay(base, modal(m.overlayTitle, m.overlayLines,
+        m.overlayScroll, m.width, m.height), m.width, m.height)
+  of modePrompt:
+    content = overlay(base, promptModal(m.promptTitle, m.promptValue,
+        m.width, m.height), m.width, m.height)
+  of modeDashboard:
+    discard
+
+  result = newView(content)
+  result.altScreen = true
+  result.windowTitle = "devpilot"
 
 proc runTui*(args: seq[string] = @[]) =
   if hasFlag(args, ["-h", "--help"]):
@@ -587,119 +897,10 @@ proc runTui*(args: seq[string] = @[]) =
     stdout.write(res.output)
     quit(res.code)
 
-  var data = loadDashboardData()
+  let data = loadDashboardData()
   if hasFlag(args, ["--snapshot"]):
     stdout.write(renderSnapshot(data))
     return
 
-  illwillInit(fullscreen = true)
-  setControlCHook(exitProc)
-  hideCursor()
-  var tb = newTerminalBuffer(terminalWidth(), terminalHeight())
-  var state = ViewState(section: 0, cursor: 0, scroll: 0)
-
-  while true:
-    if tb.width != terminalWidth() or tb.height != terminalHeight():
-      tb = newTerminalBuffer(terminalWidth(), terminalHeight())
-
-    drawDashboard(tb, data, state)
-
-    case getKeyWithTimeout(80)
-    of Key.None:
-      discard
-    of Key.Escape, Key.Q, Key.ShiftQ, Key.CtrlC:
-      exitProc()
-    of Key.QuestionMark:
-      waitOverlay(tb, "Help", helpText())
-    of Key.R, Key.ShiftR:
-      data = loadDashboardData()
-      state.message = "reloaded"
-      clampState(state, data)
-    of Key.Left, Key.H:
-      dec state.section
-      state.cursor = 0
-      state.scroll = 0
-      state.filter = ""
-    of Key.Right, Key.L, Key.Tab:
-      inc state.section
-      state.cursor = 0
-      state.scroll = 0
-      state.filter = ""
-    of Key.Up, Key.K:
-      dec state.cursor
-    of Key.Down, Key.J:
-      inc state.cursor
-    of Key.PageUp:
-      dec state.cursor, 10
-    of Key.PageDown:
-      inc state.cursor, 10
-    of Key.One:
-      state.section = 0
-      state.cursor = 0
-      state.scroll = 0
-      state.filter = ""
-    of Key.Two:
-      state.section = 1
-      state.cursor = 0
-      state.scroll = 0
-      state.filter = ""
-    of Key.Three:
-      state.section = 2
-      state.cursor = 0
-      state.scroll = 0
-      state.filter = ""
-    of Key.Four:
-      state.section = 3
-      state.cursor = 0
-      state.scroll = 0
-      state.filter = ""
-    of Key.Slash:
-      let answer = prompt(tb, data, state, "Filter " & currentSection(data,
-          state).title, state.filter)
-      if answer.ok:
-        state.filter = answer.value
-        state.cursor = 0
-        state.scroll = 0
-    of Key.Colon:
-      let answer = prompt(tb, data, state, "Run devpilot command", "",
-          state.commandHistory)
-      if answer.ok:
-        let res = runCliCommand(answer.value)
-        if res.code == 0:
-          state.commandHistory.add(answer.value)
-        data = loadDashboardData()
-        state.message = if res.code == 0: "ok: " &
-            answer.value else: "failed: " & answer.value
-        waitOverlay(tb, "Command result (" & $res.code & ")", res.output)
-    of Key.A, Key.ShiftA:
-      let form = promptAddForm(tb, data, state, currentSection(data, state))
-      if form.ok:
-        let res = runCliCommand(form.command)
-        data = loadDashboardData()
-        state.message = if res.code == 0: "added" else: "add failed"
-        waitOverlay(tb, "Add result (" & $res.code & ")", res.output)
-      elif form.error.len > 0:
-        state.message = form.error
-        waitOverlay(tb, "Validation", form.error)
-    of Key.Enter:
-      let row = selectedRow(data, state)
-      let command = infoCommand(currentSection(data, state), row)
-      if command.len > 0:
-        let res = runCliCommand(command)
-        waitOverlay(tb, "Details (" & $res.code & ")", res.output)
-    of Key.D, Key.ShiftD, Key.Delete:
-      let section = currentSection(data, state)
-      let row = selectedRow(data, state)
-      let command = deleteCommand(section, row)
-      if command.len > 0:
-        let confirm = prompt(tb, data, state, "Delete " & section.title &
-            " item", "type yes to delete " & row[0])
-        if confirm.ok and confirm.value == "yes":
-          let res = runCliCommand(command)
-          data = loadDashboardData()
-          state.message = if res.code == 0: "deleted " & row[
-              0] else: "delete failed"
-          waitOverlay(tb, "Delete result (" & $res.code & ")", res.output)
-    else:
-      discard
-    clampState(state, data)
+  discard newProgram(Model(DevpilotApp(data: data, state: ViewState(section: 0,
+      cursor: 0, scroll: 0), width: 80, height: 24))).run()
